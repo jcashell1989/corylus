@@ -11,6 +11,8 @@ const VERDICTS = {
 const CLASSIF = {
   "worker-ready":     { label: "worker:ready", color: GREEN },
   "worker:escalate":  { label: "worker:escalate", color: GOLD },
+  "judge-ready":      { label: "judge:ready", color: SLATE },
+  "judge:escalate":   { label: "judge:escalate", color: GOLD },
   "needs-review":     { label: "needs-review", color: SLATE },
   "human-only":       { label: "human-only", color: SLATE },
   "blocked":          { label: "blocked", color: MUTED }

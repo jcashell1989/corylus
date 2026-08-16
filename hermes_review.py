@@ -24,6 +24,10 @@ HERMES_HOME = Path(os.environ.get("HERMES_HOME", Path.home() / ".hermes"))
 SCRIPTS = HERMES_HOME / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 import hermes_machine_comments as hmc  # noqa: E402
+from vikunja_config import load as load_vikunja_config  # noqa: E402
+
+CFG = load_vikunja_config()
+L = CFG.labels
 
 BASE_DIR = Path(__file__).resolve().parent
 STATIC = BASE_DIR / "static"
@@ -33,8 +37,10 @@ PORT = int(os.environ.get("HERMES_REVIEW_PORT", "8789"))
 PREFLIGHT_LOG = HERMES_HOME / "logs" / "vikunja_preflight.log"
 WEBUI_BASE = os.environ.get("HERMES_WEBUI_URL", "http://127.0.0.1:8787")
 WEBUI_ENV = Path("/home/julian/projects/hermes-webui/.env")
-REVIEW_MODEL = "deepseek/deepseek-v4-flash"
-REVIEW_TOOLSETS = ["file"]
+REVIEW_MODEL = str(CFG.discuss["model"])
+REVIEW_TOOLSETS = list(CFG.discuss.get("toolsets") or [])
+REVIEW_TOOLSETS_WITHOUT_REPO = list(CFG.discuss.get("toolsets_without_repo") or [])
+WORKSPACE_WITHOUT_REPO = str(CFG.discuss.get("workspace_without_repo") or "")
 CTX_OPEN = "[[review-context]]"
 CTX_CLOSE = "[[/review-context]]"
 TAILNET = ipaddress.ip_network((0x64400000, 10))  # RFC 6598 CGNAT base /10
@@ -43,10 +49,10 @@ MACHINE_MARKERS = (
     "<!-- hermes:",
     "<<<hermes:",
 )
-BOT_USER_ID = 2
-BOT_USERNAME = "bot-hermes-agent"
+BOT_USER_ID = int(CFG.mention["user_id"])
+BOT_USERNAME = str(CFG.mention["username"])
 MENTION_RE = re.compile(
-    r"@bot-hermes-agent\b|data-mention[^>]*\b(?:user[-_]?id|id)\s*=\s*[\"']?2\b",
+    rf"@{re.escape(BOT_USERNAME)}\b|data-mention[^>]*\b(?:user[-_]?id|id)\s*=\s*[\"']?{BOT_USER_ID}\b",
     re.I,
 )
 MENTION_CAP = 3
@@ -80,9 +86,9 @@ def _now() -> datetime:
 
 
 def vikunja_ui(host_header: str | None) -> str:
-    base = os.environ.get("VIKUNJA_URL") or "http://localhost:8788"
+    base = os.environ.get("VIKUNJA_URL") or CFG.vikunja_ui or "http://localhost:8788"
     if not host_header:
-        return "http://localhost:8788"
+        return CFG.vikunja_ui or "http://localhost:8788"
     host = host_header.rsplit(":", 1)[0].strip("[]")
     try:
         ip = ipaddress.ip_address(host)
@@ -248,7 +254,14 @@ def _ensure_session(vik: httpx.Client, task: dict, machine: dict) -> str:
     attempts = machine.get("attempts") or []
     git = (attempts[-1].get("git") if attempts else {}) or {}
     repo = git.get("repo") or ""
-    workspace = repo if repo and Path(repo).is_dir() else "/home/julian"
+    workspace = repo if repo and Path(repo).is_dir() else WORKSPACE_WITHOUT_REPO
+    toolsets = (
+        REVIEW_TOOLSETS
+        if repo and Path(repo).is_dir()
+        else (REVIEW_TOOLSETS_WITHOUT_REPO or REVIEW_TOOLSETS)
+    )
+    if not workspace or not Path(workspace).is_dir():
+        raise RuntimeError("no workspace for discuss session")
     r = _webui.request(
         "POST",
         "/api/session/new",
@@ -257,7 +270,7 @@ def _ensure_session(vik: httpx.Client, task: dict, machine: dict) -> str:
             "profile": "default",
             "model": REVIEW_MODEL,
             "workspace": workspace,
-            "enabled_toolsets": REVIEW_TOOLSETS,
+            "enabled_toolsets": toolsets,
         },
     )
     r.raise_for_status()
@@ -444,16 +457,20 @@ def _parse_disposition(comments: list[dict]) -> dict | None:
 
 
 def _classify(labels: set[str]) -> str:
-    if "human-only" in labels:
-        return "human-only"
-    if "needs-review" in labels or "judged" in labels:
-        return "needs-review"
-    if "worker:escalate" in labels:
-        return "worker:escalate"
-    if "worker:ready" in labels:
+    if L["human_only"] in labels:
+        return L["human_only"]
+    if L["needs_review"] in labels:
+        return L["needs_review"]
+    if L["judge_escalate"] in labels:
+        return L["judge_escalate"]
+    if L["judge_ready"] in labels:
+        return "judge-ready"
+    if L["worker_escalate"] in labels:
+        return L["worker_escalate"]
+    if L["worker_ready"] in labels:
         return "worker-ready"
-    if "blocked" in labels:
-        return "blocked"
+    if L["blocked"] in labels:
+        return L["blocked"]
     return "unclassified"
 
 
@@ -511,8 +528,7 @@ def _assemble_ticket(client: httpx.Client, task: dict, ui: str) -> dict:
     snoozed = hmc.is_snoozed(machine.get("control"))
     disp = _parse_disposition(chat)
     pending = (
-        "judged" in labelset
-        and "needs-review" in labelset
+        L["needs_review"] in labelset
         and not task.get("done")
         and not snoozed
         and not (disp and disp.get("kind") in {"approve", "noAction", "discard"})
@@ -585,13 +601,18 @@ def build_board(host_header: str | None) -> dict:
         queue = []
         for task in tasks:
             labels = {l.get("title") for l in (task.get("labels") or [])}
-            if "human-only" in labels:
+            if L["human_only"] in labels:
                 human_only.append(_assemble_ticket(client, task, ui))
                 continue
-            if "judged" in labels or "needs-review" in labels:
+            if L["needs_review"] in labels:
                 tickets.append(_assemble_ticket(client, task, ui))
                 continue
-            if "worker:ready" in labels or "worker:escalate" in labels:
+            if labels & {
+                L["worker_ready"],
+                L["worker_escalate"],
+                L["judge_ready"],
+                L["judge_escalate"],
+            }:
                 queue.append(_assemble_ticket(client, task, ui))
         # Metrics stay on open judged/needs-review only (honest empty if none).
     tickets.sort(key=lambda t: (-t["priority"], t["id"]))
@@ -636,6 +657,7 @@ def build_board(host_header: str | None) -> dict:
         "date_stamp": _now().strftime("%Y-%m-%d %H:%M Pacific"),
         "heartbeat": hb,
         "vikunja_ui": ui,
+        "vocab": {"labels": dict(L), "cron": dict(CFG.cron), "caps": dict(CFG.caps)},
         "tickets": tickets,
         "pending_ids": [t["id"] for t in pending],
         "queue": queue,
@@ -678,36 +700,44 @@ def apply_decision(
         if note:
             text += f" — {note}"
         if kind == "approve":
-            _remove_label(client, task_id, "needs-review", ids, attached)
-            _remove_label(client, task_id, "in-progress", ids, attached)
-            _remove_label(client, task_id, "worker:ready", ids, attached)
-            _remove_label(client, task_id, "worker:escalate", ids, attached)
+            _remove_label(client, task_id, L["needs_review"], ids, attached)
+            _remove_label(client, task_id, L["in_progress"], ids, attached)
+            _remove_label(client, task_id, L["worker_ready"], ids, attached)
+            _remove_label(client, task_id, L["worker_escalate"], ids, attached)
+            _remove_label(client, task_id, L["judge_ready"], ids, attached)
+            _remove_label(client, task_id, L["judge_escalate"], ids, attached)
             client.post(
                 f"/tasks/{task_id}",
                 json={"done": True, "percent_done": 100},
             ).raise_for_status()
         elif kind == "remediate":
             _comment(client, task_id, text)
-            _remove_label(client, task_id, "judged", ids, attached)
-            _remove_label(client, task_id, "needs-review", ids, attached)
-            _remove_label(client, task_id, "in-progress", ids, attached)
-            _add_label(client, task_id, "worker:ready", ids)
+            _remove_label(client, task_id, L["judged"], ids, attached)
+            _remove_label(client, task_id, L["needs_review"], ids, attached)
+            _remove_label(client, task_id, L["judge_ready"], ids, attached)
+            _remove_label(client, task_id, L["judge_escalate"], ids, attached)
+            _remove_label(client, task_id, L["in_progress"], ids, attached)
+            _add_label(client, task_id, L["worker_ready"], ids)
             text = ""  # already commented
         elif kind in {"noAction", "discard"}:
-            _remove_label(client, task_id, "needs-review", ids, attached)
-            _remove_label(client, task_id, "in-progress", ids, attached)
-            _remove_label(client, task_id, "worker:ready", ids, attached)
-            _remove_label(client, task_id, "worker:escalate", ids, attached)
+            _remove_label(client, task_id, L["needs_review"], ids, attached)
+            _remove_label(client, task_id, L["in_progress"], ids, attached)
+            _remove_label(client, task_id, L["worker_ready"], ids, attached)
+            _remove_label(client, task_id, L["worker_escalate"], ids, attached)
+            _remove_label(client, task_id, L["judge_ready"], ids, attached)
+            _remove_label(client, task_id, L["judge_escalate"], ids, attached)
             client.post(
                 f"/tasks/{task_id}",
                 json={"done": True},
             ).raise_for_status()
         elif kind == "human":
-            _add_label(client, task_id, "human-only", ids)
-            _remove_label(client, task_id, "worker:ready", ids, attached)
-            _remove_label(client, task_id, "worker:escalate", ids, attached)
-            _remove_label(client, task_id, "needs-review", ids, attached)
-            _remove_label(client, task_id, "in-progress", ids, attached)
+            _add_label(client, task_id, L["human_only"], ids)
+            _remove_label(client, task_id, L["worker_ready"], ids, attached)
+            _remove_label(client, task_id, L["worker_escalate"], ids, attached)
+            _remove_label(client, task_id, L["judge_ready"], ids, attached)
+            _remove_label(client, task_id, L["judge_escalate"], ids, attached)
+            _remove_label(client, task_id, L["needs_review"], ids, attached)
+            _remove_label(client, task_id, L["in_progress"], ids, attached)
         elif kind == "snooze":
             if not not_before:
                 raise RuntimeError("snooze requires not_before")
@@ -733,8 +763,8 @@ def human_action(task_id: int, action: str, note: str = "") -> dict:
         elif action == "reopen":
             client.post(f"/tasks/{task_id}", json={"done": False}).raise_for_status()
         elif action == "hand":
-            _remove_label(client, task_id, "human-only", ids)
-            _add_label(client, task_id, "worker:ready", ids)
+            _remove_label(client, task_id, L["human_only"], ids)
+            _add_label(client, task_id, L["worker_ready"], ids)
             _comment(
                 client, task_id, "Handed to hermes — pick up on the next heartbeat."
             )
