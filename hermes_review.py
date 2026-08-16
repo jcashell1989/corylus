@@ -1,0 +1,556 @@
+#!/home/julian/.hermes/hermes-agent/venv/bin/python
+"""Hermes Review — Catkin dashboard on :8789.
+
+Token stays on the box. The browser talks only to this process.
+"""
+from __future__ import annotations
+
+import html
+import ipaddress
+import json
+import os
+import re
+import sys
+from datetime import datetime, timedelta
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from urllib.parse import urlparse
+from zoneinfo import ZoneInfo
+
+import httpx
+
+HERMES_HOME = Path(os.environ.get("HERMES_HOME", Path.home() / ".hermes"))
+SCRIPTS = HERMES_HOME / "scripts"
+sys.path.insert(0, str(SCRIPTS))
+import hermes_machine_comments as hmc  # noqa: E402
+
+BASE_DIR = Path(__file__).resolve().parent
+STATIC = BASE_DIR / "static"
+TZ = ZoneInfo("America/Los_Angeles")
+HOST = os.environ.get("HERMES_REVIEW_HOST", "localhost")
+PORT = int(os.environ.get("HERMES_REVIEW_PORT", "8789"))
+PREFLIGHT_LOG = HERMES_HOME / "logs" / "vikunja_preflight.log"
+TAILNET = ipaddress.ip_network((0x64400000, 10))  # RFC 6598 CGNAT base /10
+DISPOSITION_PREFIX = "Hermes Review:"
+MACHINE_MARKERS = (
+    "<!-- hermes:",
+    "<<<hermes:",
+)
+
+PRIORITY_LABEL = {
+    0: "unset",
+    1: "low",
+    2: "medium",
+    3: "high",
+    4: "urgent",
+    5: "DO NOW",
+}
+
+
+def load_env() -> None:
+    hmc.load_env()
+
+
+def _now() -> datetime:
+    return datetime.now(TZ)
+
+
+def vikunja_ui(host_header: str | None) -> str:
+    base = os.environ.get("VIKUNJA_URL") or "http://localhost:8788"
+    if not host_header:
+        return "http://localhost:8788"
+    host = host_header.rsplit(":", 1)[0].strip("[]")
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return base
+    if ip in TAILNET:
+        return f"http://{host}:8788"
+    return base
+
+
+def _client() -> httpx.Client:
+    return hmc._client()
+
+
+def _labels(client: httpx.Client) -> dict[str, int]:
+    r = client.get("/labels")
+    r.raise_for_status()
+    return {l.get("title"): l.get("id") for l in r.json() or []}
+
+
+def _add_label(
+    client: httpx.Client, task_id: int, title: str, ids: dict[str, int]
+) -> None:
+    lid = ids.get(title)
+    if lid is None:
+        raise RuntimeError(f"missing Vikunja label {title!r}")
+    client.put(f"/tasks/{task_id}/labels", json={"label_id": lid}).raise_for_status()
+
+
+def _remove_label(
+    client: httpx.Client, task_id: int, title: str, ids: dict[str, int]
+) -> None:
+    lid = ids.get(title)
+    if lid is None:
+        return
+    r = client.delete(f"/tasks/{task_id}/labels/{lid}")
+    if r.status_code not in {200, 204, 404}:
+        r.raise_for_status()
+
+
+def _comment(client: httpx.Client, task_id: int, text: str) -> None:
+    client.put(f"/tasks/{task_id}/comments", json={"comment": text}).raise_for_status()
+
+
+def _heartbeat() -> dict[str, str]:
+    last = ""
+    if PREFLIGHT_LOG.exists():
+        lines = PREFLIGHT_LOG.read_text(encoding="utf-8").splitlines()
+        if lines:
+            last = lines[-1][:80]
+    nxt = (_now() + timedelta(minutes=30)).strftime("%H:%M")
+    return {"last": last or "no preflight log yet", "next": f"~{nxt} Pacific"}
+
+
+def _split_paras(text: str) -> list[str]:
+    text = re.sub(r"<[^>]+>", " ", text or "")
+    text = html.unescape(text).strip()
+    if not text:
+        return []
+    parts = [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
+    return parts or [text]
+
+
+def _human_comments(raw: list[dict]) -> list[dict]:
+    out = []
+    for c in raw or []:
+        text = (c.get("comment") or "").strip()
+        if not text or any(m in text for m in MACHINE_MARKERS):
+            continue
+        who = "hermes"
+        if text.startswith(DISPOSITION_PREFIX) or text.lower().startswith("judge "):
+            who = "hermes"
+        elif "claiming" in text.lower() or text.lower().startswith("vikunja reaper"):
+            who = "hermes"
+        else:
+            who = "me"
+        out.append({"who": who, "text": text, "at": c.get("created") or ""})
+    return out
+
+
+def _parse_disposition(comments: list[dict]) -> dict | None:
+    for c in reversed(comments):
+        text = (c.get("text") or "").strip()
+        if not text.startswith(DISPOSITION_PREFIX):
+            continue
+        rest = text[len(DISPOSITION_PREFIX) :].strip()
+        kind = rest.split(" ", 1)[0].rstrip(":")
+        note = rest[len(kind) :].strip(" :—-")
+        return {"kind": kind, "note": note}
+    return None
+
+
+def _classify(labels: set[str]) -> str:
+    if "human-only" in labels:
+        return "human-only"
+    if "agent:ready" in labels:
+        return "agent-ready"
+    if "needs-review" in labels or "judged" in labels:
+        return "needs-review"
+    return "unclassified"
+
+
+def _assemble_ticket(client: httpx.Client, task: dict, ui: str) -> dict:
+    tid = task["id"]
+    labels = [l.get("title") for l in (task.get("labels") or []) if l.get("title")]
+    labelset = set(labels)
+    machine = hmc.list_machine(client, tid)
+    comments_r = client.get(f"/tasks/{tid}/comments")
+    comments_r.raise_for_status()
+    chat = _human_comments(comments_r.json() or [])
+    attempts = machine.get("attempts") or []
+    judges = machine.get("judges") or []
+    latest_a = attempts[-1] if attempts else {}
+    latest_j = judges[-1] if judges else {}
+    git = latest_a.get("git") or {}
+    artifacts = []
+    log_lines = []
+    if git.get("repo") and git.get("base") and git.get("tip"):
+        gr = hmc.git_range(git["repo"], git["base"], git["tip"])
+        artifacts.append(
+            {
+                "kind": "diff",
+                "name": git.get("branch") or Path(git["repo"]).name,
+                "detail": (
+                    (gr.get("diff_stat") or "").strip().splitlines()[-1]
+                    if gr.get("diff_stat")
+                    else f"{git.get('base', '')[:7]}..{git.get('tip', '')[:7]}"
+                ),
+                "diff": gr.get("diff") or "",
+            }
+        )
+        for line in (gr.get("log") or "").splitlines():
+            log_lines.append({"at": "", "level": "ok", "msg": line})
+    history = []
+    for a in attempts[:-1] if len(attempts) > 1 else []:
+        matched = next(
+            (j for j in judges if int(j.get("attempt") or 0) == int(a.get("n") or 0)),
+            {},
+        )
+        history.append(
+            {
+                "head": f"attempt {a.get('n')} · {a.get('finished_at') or ''} · {matched.get('verdict') or 'unjudged'}",
+                "note": " ".join(a.get("summary") or []) or "(no summary)",
+                "thenText": " ".join(a.get("summary") or []),
+                "nowText": " ".join(latest_a.get("summary") or []),
+                "comparable": True,
+            }
+        )
+    project = (
+        (task.get("project") or {}) if isinstance(task.get("project"), dict) else {}
+    )
+    project_title = project.get("title") or str(task.get("project_id") or "")
+    identifier = f"#{tid}"
+    snoozed = hmc.is_snoozed(machine.get("control"))
+    disp = _parse_disposition(chat)
+    pending = (
+        "judged" in labelset
+        and "needs-review" in labelset
+        and not task.get("done")
+        and not snoozed
+        and not (disp and disp.get("kind") in {"approve", "noAction", "discard"})
+    )
+    n = int(latest_a.get("n") or 0)
+    return {
+        "id": tid,
+        "identifier": identifier,
+        "title": task.get("title") or identifier,
+        "description": _split_paras(task.get("description") or ""),
+        "project": project_title,
+        "project_id": task.get("project_id"),
+        "labels": labels,
+        "priority": int(task.get("priority") or 0),
+        "priority_label": PRIORITY_LABEL.get(int(task.get("priority") or 0), "unset"),
+        "href": f"{ui}/tasks/{tid}",
+        "edit_href": f"{ui}/tasks/{tid}/edit",
+        "classification": _classify(labelset),
+        "created": task.get("created") or "",
+        "updated": task.get("updated") or "",
+        "due_date": task.get("due_date") or "",
+        "done": bool(task.get("done")),
+        "percent_done": task.get("percent_done") or 0,
+        "assignees": [
+            a.get("username") or a.get("name") or str(a.get("id"))
+            for a in (task.get("assignees") or [])
+        ],
+        "attempt": {
+            "n": n,
+            "of": max(n, len(attempts)),
+            "finished_at": latest_a.get("finished_at") or "",
+            "summary": latest_a.get("summary") or [],
+            "stats": (
+                f"git {git.get('branch') or '—'} · {(git.get('tip') or '')[:7]}"
+                if git
+                else "no git pointers"
+            ),
+            "git": git,
+        },
+        "judge": {
+            "model": latest_j.get("model") or "—",
+            "verdict": latest_j.get("verdict") or "thin",
+            "confidence": float(latest_j.get("confidence") or 0),
+            "notes": latest_j.get("notes") or [],
+            "checks": latest_j.get("checks") or [],
+        },
+        "history": history,
+        "artifacts": artifacts,
+        "log": log_lines,
+        "chat": chat,
+        "drafts": [],
+        "control": machine.get("control"),
+        "snoozed": snoozed,
+        "pending": pending,
+        "disposition": disp,
+        "age": task.get("updated") or task.get("created") or "",
+    }
+
+
+def build_board(host_header: str | None) -> dict:
+    ui = vikunja_ui(host_header)
+    load_env()
+    with _client() as client:
+        r = client.get("/tasks", params={"filter": "done = false", "per_page": 100})
+        r.raise_for_status()
+        tasks = r.json() or []
+        tickets = []
+        human_only = []
+        for task in tasks:
+            labels = {l.get("title") for l in (task.get("labels") or [])}
+            if "human-only" in labels:
+                human_only.append(_assemble_ticket(client, task, ui))
+            if "judged" in labels or "needs-review" in labels:
+                tickets.append(_assemble_ticket(client, task, ui))
+        # also include recently done reviewed tasks for metrics (last 30d is not
+        # filterable cheaply — use open judged/needs-review only, honest)
+    tickets.sort(key=lambda t: (-t["priority"], t["id"]))
+    human_only.sort(key=lambda t: (-t["priority"], t["id"]))
+    pending = [t for t in tickets if t["pending"]]
+    activity = []
+    for t in tickets:
+        for msg in t["chat"][-3:]:
+            activity.append(
+                {
+                    "at": (msg.get("at") or "")[11:16],
+                    "kind": "me" if msg["who"] == "me" else "judged",
+                    "ref": t["identifier"],
+                    "id": t["id"],
+                    "text": (msg.get("text") or "")[:180],
+                }
+            )
+    activity = activity[-40:]
+    verdicts = [t["judge"]["verdict"] for t in tickets if t.get("judge")]
+    n_approve = sum(1 for v in verdicts if v == "approve")
+    n_rem = sum(1 for v in verdicts if v == "remediate")
+    n_human = sum(1 for v in verdicts if v == "human")
+    n_thin = sum(1 for v in verdicts if v == "thin")
+    decided_human = [t for t in tickets if t.get("disposition")]
+    agree = 0
+    compared = 0
+    for t in decided_human:
+        kind = (t["disposition"] or {}).get("kind")
+        jv = t["judge"]["verdict"]
+        if kind in {"approve", "remediate", "human"}:
+            compared += 1
+            if (
+                (kind == "approve" and jv == "approve")
+                or (kind == "remediate" and jv == "remediate")
+                or (kind == "human" and jv == "human")
+            ):
+                agree += 1
+    hb = _heartbeat()
+    return {
+        "generated_at": _now().isoformat(timespec="seconds"),
+        "date_stamp": _now().strftime("%Y-%m-%d %H:%M Pacific"),
+        "heartbeat": hb,
+        "vikunja_ui": ui,
+        "tickets": tickets,
+        "pending_ids": [t["id"] for t in pending],
+        "human_only": human_only,
+        "activity": list(reversed(activity)),
+        "metrics": {
+            "judge_approve": n_approve,
+            "judge_remediate": n_rem,
+            "judge_human": n_human,
+            "judge_thin": n_thin,
+            "open_judged": len(tickets),
+            "pending": len(pending),
+            "agreement": f"{agree}/{compared}" if compared else "—",
+            "first_attempt": "—",
+        },
+    }
+
+
+def apply_decision(
+    task_id: int, kind: str, note: str = "", not_before: str | None = None
+) -> dict:
+    load_env()
+    kind = kind.strip()
+    with _client() as client:
+        ids = _labels(client)
+        t = client.get(f"/tasks/{task_id}")
+        t.raise_for_status()
+        task = t.json()
+        snapshot = {
+            "done": task.get("done"),
+            "percent_done": task.get("percent_done"),
+            "labels": [l.get("title") for l in (task.get("labels") or [])],
+        }
+        text = f"{DISPOSITION_PREFIX} {kind}"
+        if note:
+            text += f" — {note}"
+        if kind == "approve":
+            client.post(
+                f"/tasks/{task_id}",
+                json={"done": True, "percent_done": 100},
+            ).raise_for_status()
+            _remove_label(client, task_id, "needs-review", ids)
+            _remove_label(client, task_id, "in-progress", ids)
+            _remove_label(client, task_id, "agent:ready", ids)
+        elif kind == "remediate":
+            _comment(client, task_id, text)
+            _remove_label(client, task_id, "judged", ids)
+            _remove_label(client, task_id, "needs-review", ids)
+            _remove_label(client, task_id, "in-progress", ids)
+            _add_label(client, task_id, "agent:ready", ids)
+            text = ""  # already commented
+        elif kind in {"noAction", "discard"}:
+            client.post(
+                f"/tasks/{task_id}",
+                json={"done": True},
+            ).raise_for_status()
+            _remove_label(client, task_id, "needs-review", ids)
+            _remove_label(client, task_id, "in-progress", ids)
+            _remove_label(client, task_id, "agent:ready", ids)
+        elif kind == "human":
+            _add_label(client, task_id, "human-only", ids)
+            _remove_label(client, task_id, "agent:ready", ids)
+            _remove_label(client, task_id, "needs-review", ids)
+            _remove_label(client, task_id, "in-progress", ids)
+        elif kind == "snooze":
+            if not not_before:
+                raise RuntimeError("snooze requires not_before")
+            hmc.upsert_control(client, task_id, not_before=not_before)
+        else:
+            raise RuntimeError(f"unknown decision {kind!r}")
+        if text and kind != "remediate":
+            _comment(client, task_id, text)
+        return {"ok": True, "snapshot": snapshot, "kind": kind}
+
+
+def human_action(task_id: int, action: str, note: str = "") -> dict:
+    load_env()
+    with _client() as client:
+        ids = _labels(client)
+        if action == "note":
+            if note:
+                _comment(client, task_id, note)
+        elif action == "done":
+            client.post(
+                f"/tasks/{task_id}", json={"done": True, "percent_done": 100}
+            ).raise_for_status()
+        elif action == "reopen":
+            client.post(f"/tasks/{task_id}", json={"done": False}).raise_for_status()
+        elif action == "hand":
+            _remove_label(client, task_id, "human-only", ids)
+            _add_label(client, task_id, "agent:ready", ids)
+            _comment(
+                client, task_id, "Handed to hermes — pick up on the next heartbeat."
+            )
+        else:
+            raise RuntimeError(f"unknown human action {action!r}")
+        return {"ok": True}
+
+
+class Handler(BaseHTTPRequestHandler):
+    def log_message(self, fmt: str, *args) -> None:
+        sys.stderr.write("%s - %s\n" % (self.address_string(), fmt % args))
+
+    def _send(self, code: int, body: bytes, content_type: str) -> None:
+        self.send_response(code)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _json(self, code: int, obj) -> None:
+        self._send(
+            code, json.dumps(obj).encode("utf-8"), "application/json; charset=utf-8"
+        )
+
+    def _read_json(self) -> dict:
+        n = int(self.headers.get("Content-Length") or 0)
+        if n <= 0:
+            return {}
+        raw = self.rfile.read(n)
+        return json.loads(raw.decode("utf-8") or "{}")
+
+    def do_GET(self) -> None:
+        parsed = urlparse(self.path)
+        path = parsed.path
+        if path in {"/", "/index.html"}:
+            body = (STATIC / "index.html").read_bytes()
+            self._send(200, body, "text/html; charset=utf-8")
+            return
+        if path.startswith("/static/"):
+            rel = path[len("/static/") :]
+            fp = (STATIC / rel).resolve()
+            if STATIC not in fp.parents and fp != STATIC:
+                self._json(403, {"error": "forbidden"})
+                return
+            if not fp.is_file():
+                self._json(404, {"error": "missing"})
+                return
+            ctype = {
+                ".html": "text/html; charset=utf-8",
+                ".js": "text/javascript; charset=utf-8",
+                ".css": "text/css; charset=utf-8",
+                ".svg": "image/svg+xml",
+                ".woff2": "font/woff2",
+            }.get(fp.suffix, "application/octet-stream")
+            self._send(200, fp.read_bytes(), ctype)
+            return
+        if path == "/api/board":
+            try:
+                self._json(200, build_board(self.headers.get("Host")))
+            except Exception as exc:
+                self._json(500, {"error": str(exc)})
+            return
+        self._json(404, {"error": "not found"})
+
+    def do_POST(self) -> None:
+        parsed = urlparse(self.path)
+        path = parsed.path
+        try:
+            payload = self._read_json()
+        except json.JSONDecodeError:
+            self._json(400, {"error": "invalid json"})
+            return
+        m = re.fullmatch(r"/api/tasks/(\d+)/decide", path)
+        if m:
+            try:
+                result = apply_decision(
+                    int(m.group(1)),
+                    str(payload.get("kind") or ""),
+                    str(payload.get("note") or ""),
+                    payload.get("not_before"),
+                )
+                self._json(200, result)
+            except Exception as exc:
+                self._json(400, {"error": str(exc)})
+            return
+        m = re.fullmatch(r"/api/tasks/(\d+)/comment", path)
+        if m:
+            text = str(payload.get("text") or "").strip()
+            if not text:
+                self._json(400, {"error": "empty"})
+                return
+            try:
+                load_env()
+                with _client() as client:
+                    _comment(client, int(m.group(1)), text)
+                self._json(200, {"ok": True})
+            except Exception as exc:
+                self._json(400, {"error": str(exc)})
+            return
+        m = re.fullmatch(r"/api/tasks/(\d+)/human", path)
+        if m:
+            try:
+                self._json(
+                    200,
+                    human_action(
+                        int(m.group(1)),
+                        str(payload.get("action") or ""),
+                        str(payload.get("note") or ""),
+                    ),
+                )
+            except Exception as exc:
+                self._json(400, {"error": str(exc)})
+            return
+        self._json(404, {"error": "not found"})
+
+
+def main() -> int:
+    load_env()
+    if not os.environ.get("VIKUNJA_API_TOKEN"):
+        print("VIKUNJA_API_TOKEN missing", file=sys.stderr)
+        return 1
+    httpd = ThreadingHTTPServer((HOST, PORT), Handler)
+    print(f"hermes-review http://{HOST}:{PORT}", flush=True)
+    httpd.serve_forever()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

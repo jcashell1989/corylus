@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>hermes review</title>
+<style>
+@font-face{font-family:'Atkinson Hyperlegible Next';font-style:normal;font-weight:400 700;font-display:swap;src:url('/static/fonts/ahn-upright-latin.woff2') format('woff2');}
+@font-face{font-family:'Atkinson Hyperlegible Next';font-style:italic;font-weight:400 700;font-display:swap;src:url('/static/fonts/ahn-italic-latin.woff2') format('woff2');}
+@font-face{font-family:'Playfair Display';font-style:normal;font-weight:400 900;font-display:swap;src:url('/static/fonts/playfair-upright-latin.woff2') format('woff2');}
+@font-face{font-family:'Playfair Display';font-style:italic;font-weight:400 900;font-display:swap;src:url('/static/fonts/playfair-italic-latin.woff2') format('woff2');}
+@font-face{font-family:'Maple Mono NF';font-style:normal;font-weight:400;font-display:swap;src:url('/static/fonts/maple-mono-regular.woff2') format('woff2');}
+@font-face{font-family:'Maple Mono NF';font-style:normal;font-weight:700;font-display:swap;src:url('/static/fonts/maple-mono-bold.woff2') format('woff2');}
+html,body{margin:0;padding:0;background:#F5F0E8;color:#2B241B;font-family:'Atkinson Hyperlegible Next',system-ui,sans-serif;-webkit-font-smoothing:antialiased;height:100%;}
+*{box-sizing:border-box;}
+a{color:#2B241B;text-decoration:none;}
+a:hover{color:#7A6020;}
+button,textarea,input{font:inherit;color:inherit;}
+::selection{background:rgba(61,107,62,0.18);}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+@keyframes fadeUp{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+a,button,input,textarea{transition:color 300ms cubic-bezier(0.22,1,0.36,1),background-color 300ms cubic-bezier(0.22,1,0.36,1),border-color 300ms cubic-bezier(0.22,1,0.36,1),opacity 300ms cubic-bezier(0.22,1,0.36,1);}
+*{scrollbar-width:thin;scrollbar-color:rgba(43,36,27,0.22) transparent;}
+::-webkit-scrollbar{width:11px;height:11px;}
+::-webkit-scrollbar-track{background:transparent;}
+::-webkit-scrollbar-thumb{background:rgba(43,36,27,0.22);border:4px solid #F5F0E8;border-radius:0;}
+::-webkit-scrollbar-thumb:hover{background:rgba(43,36,27,0.38);}
+#app{height:100vh;display:flex;flex-direction:column;overflow:hidden;background:#F5F0E8;}
+.mono{font-family:'Maple Mono NF',monospace;}
+.play{font-family:'Playfair Display',Georgia,serif;font-weight:700;letter-spacing:-0.02em;}
+.hair{border-top:1px solid rgba(43,36,27,0.12);}
+.rule{width:32px;height:2px;background:#3D6B3E;}
+.chip{font-family:'Maple Mono NF',monospace;font-size:10px;letter-spacing:0.05em;border:1px solid rgba(43,36,27,0.22);border-radius:2px;padding:2px 6px;color:#5A5347;}
+.btn{border-radius:2px;padding:10px 16px;font-size:15px;cursor:pointer;background:transparent;border:1px solid rgba(43,36,27,0.24);}
+.btn-fill{background:#2B241B;color:#F5F0E8;border-color:#2B241B;font-weight:700;}
+.scrim{position:fixed;inset:0;background:rgba(43,36,27,0.55);display:flex;align-items:center;justify-content:center;animation:fadeIn 200ms;z-index:20;}
+.card{background:#F5F0E8;padding:34px 38px 32px;max-width:520px;width:calc(100% - 40px);}
+.handle{width:5px;flex:none;cursor:col-resize;background:transparent;}
+.handle:hover{background:rgba(61,107,62,0.35);}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script src="/static/app.js"></script>
+</body>
+</html>
