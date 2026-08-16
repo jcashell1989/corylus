@@ -1,4 +1,4 @@
-/* Hermes Review — Catkin UI. Data from /api/board. Discuss is Hermes via :8789. */
+/* Hermes Review — Catkin UI. Data from /api/board. Discuss is Vikunja comments. */
 const INK = "#2B241B", MUTED = "#5A5347", GOLD = "#7A6020", GREEN = "#3D6B3E";
 const CLAY = "#8B3232", SLATE = "#3A5563", PARCH = "#F5F0E8", SURF = "#EAE3D6";
 const VERDICTS = {
@@ -44,9 +44,6 @@ const state = {
   noteText: "",
   customWhen: "",
   chatDraft: "",
-  discuss: { taskId: null, messages: [], status: "idle", notice: null },
-  discussLoading: null,
-  chatTimer: null,
   shortcutsOpen: false,
   discarding: false,
   last: null,
@@ -222,75 +219,17 @@ function snoozeUntil() {
   const d = new Date(pacific); d.setMinutes(d.getMinutes() + 30); return iso(d);
 }
 
-async function sendChat() {
+async function sendComment() {
   const t = current();
   const text = state.chatDraft.trim();
   if (!t || !text) return;
   try {
     state.chatDraft = "";
-    const data = await postJSON("/api/tasks/" + t.id + "/chat", { text });
-    state.discuss = {
-      taskId: t.id,
-      messages: data.messages || [],
-      status: data.status || "idle",
-      notice: data.notice || null
-    };
-    if (data.status === "streaming") scheduleChatPoll(t.id, Date.now());
+    const data = await postJSON("/api/tasks/" + t.id + "/comment", { text });
+    if (data.chat) t.chat = data.chat;
+    else await loadBoard();
   } catch (e) { state.error = e.message; }
   render();
-}
-
-function stopChatPoll() {
-  if (state.chatTimer) {
-    clearTimeout(state.chatTimer);
-    state.chatTimer = null;
-  }
-}
-
-async function loadDiscuss(taskId) {
-  const r = await fetch("/api/tasks/" + taskId + "/chat");
-  const data = await r.json();
-  if (!r.ok) throw new Error(data.error || "chat failed");
-  state.discuss = {
-    taskId,
-    messages: data.messages || [],
-    status: data.status || "idle",
-    notice: data.notice || null
-  };
-  return data;
-}
-
-function scheduleChatPoll(taskId, started) {
-  stopChatPoll();
-  const tick = async () => {
-    try {
-      const data = await loadDiscuss(taskId);
-      render();
-      if (data.status === "streaming" && Date.now() - started < 180000) {
-        state.chatTimer = setTimeout(tick, 1500);
-      } else if (data.status === "streaming") {
-        state.discuss.status = "busy";
-        state.discuss.notice = "Hermes is taking too long — check webui or send again";
-        render();
-      }
-    } catch (e) {
-      state.error = e.message;
-      render();
-    }
-  };
-  state.chatTimer = setTimeout(tick, 1500);
-}
-
-function ensureDiscuss(t) {
-  if (!t) return;
-  if (state.discuss.taskId === t.id) return;
-  if (state.discussLoading === t.id) return;
-  state.discussLoading = t.id;
-  loadDiscuss(t.id).then(() => { state.discussLoading = null; render(); }).catch(e => {
-    state.discussLoading = null;
-    state.error = e.message;
-    render();
-  });
 }
 
 function navHtml() {
@@ -547,15 +486,13 @@ function actionBtn(kind, label, key, decided) {
 
 function renderReview() {
   const t = current();
-  ensureDiscuss(t);
   const decided = t && t.disposition && t.disposition.kind;
-  const msgs = (state.discuss.taskId === (t && t.id) ? state.discuss.messages : []) || [];
-  const notice = state.discuss.taskId === (t && t.id) ? state.discuss.notice : null;
+  const msgs = (t && t.chat) || [];
   const chat = msgs.map(m =>
     `<div><div class="mono" style="font-size:10px;letter-spacing:0.06em;color:${m.who === "me" ? GOLD : MUTED};margin-bottom:5px">${esc(m.who)}</div>
      <p style="font-size:15px;line-height:1.6;margin:0">${esc(m.text)}</p></div>`
-  ).join("") || `<div class="mono" style="font-size:11px;color:${MUTED}">⌘↵ sends to Hermes. Transcript stays here, not Vikunja.</div>`;
-  const pause = notice ? `<div class="mono" style="font-size:11px;color:${GOLD}">${esc(notice)}</div>` : "";
+  ).join("") || `<div class="mono" style="font-size:11px;color:${MUTED}">⌘↵ posts a Vikunja comment. Mention @bot-hermes-agent and Hermes replies on the next preflight.</div>`;
+  const pause = "";
   const revise = state.noteMode === "remediate" ? `<div class="handle" data-drag="revise"></div>
     <aside style="width:${state.reviseW}px;flex:none;overflow:hidden;transition:width 400ms cubic-bezier(0.22,1,0.36,1);background:${SURF};display:flex;flex-direction:column">
       <div class="mono" style="padding:16px 22px 12px;border-bottom:1px solid rgba(43,36,27,0.14);font-size:11px;letter-spacing:0.08em;color:${MUTED}">revise note</div>
@@ -599,7 +536,7 @@ function renderReview() {
         <div class="mono" style="padding:16px 20px 12px;border-bottom:1px solid rgba(43,36,27,0.10);font-size:11px;letter-spacing:0.08em;color:${MUTED}">discuss · ${esc(t.identifier)}</div>
         <div id="chat-scroll" style="flex:1;overflow-y:auto;padding:18px 20px 10px;display:flex;flex-direction:column;gap:18px">${chat}${pause}</div>
         <div style="flex:none;border-top:1px solid rgba(43,36,27,0.10);padding:12px 20px 16px">
-          <textarea id="chat-draft" rows="2" placeholder="discuss this attempt" style="width:100%;background:${PARCH};border:1px solid rgba(43,36,27,0.20);border-radius:2px;padding:10px 12px;font-size:15px;resize:none">${esc(state.chatDraft)}</textarea>
+          <textarea id="chat-draft" rows="2" placeholder="write a comment" style="width:100%;background:${PARCH};border:1px solid rgba(43,36,27,0.20);border-radius:2px;padding:10px 12px;font-size:15px;resize:none">${esc(state.chatDraft)}</textarea>
           <div style="display:flex;margin-top:8px"><button data-act="send-chat" style="background:none;border:0;font-family:'Maple Mono NF',monospace;font-size:11px;color:${GOLD};cursor:pointer;text-decoration:underline">send ⌘↵</button><span style="flex:1"></span><span class="mono" style="font-size:11px;color:${MUTED}">/ to focus</span></div>
         </div>
       </aside>` : ""}
@@ -704,7 +641,7 @@ function overlays() {
     const keys = [
       ["j / k", "next / previous"], ["a", "approve"], ["r", "revise"], ["c", "discard"],
       ["h", "human-only"], ["s", "snooze"], ["u", "undo"], ["1–6", "toggle sections"],
-      ["[ / ]", "queue / chat"], ["g then o/r/q/h/t/s", "go to view"], ["/", "focus chat"], ["?", "this card"]
+      ["[ / ]", "queue / discuss"], ["g then o/r/q/h/t/s", "go to view"], ["/", "focus discuss"], ["?", "this card"]
     ];
     html += `<div class="scrim" data-act="close-overlay"><div class="card" onclick="event.stopPropagation()">
       <div class="rule" style="margin-bottom:16px"></div>
@@ -854,7 +791,7 @@ document.addEventListener("click", async e => {
   else if (name === "toggle-rail") { state.railOpen = !state.railOpen; render(); }
   else if (name === "toggle-chat") { state.chatOpen = !state.chatOpen; render(); }
   else if (name === "shortcuts") { state.shortcutsOpen = !state.shortcutsOpen; render(); }
-  else if (name === "send-chat") sendChat();
+  else if (name === "send-chat") sendComment();
   else if (name === "undo") { state.toast = "undo is session-local — re-open the ticket in Vikunja if you need a hard revert"; render(); }
 });
 
@@ -883,7 +820,7 @@ window.addEventListener("keydown", e => {
       e.preventDefault();
       if (state.noteMode === "remediate") decide("remediate", state.noteText);
       else if (state.noteMode === "snooze") decide("snooze", state.noteText, snoozeUntil());
-      else sendChat();
+      else sendComment();
     }
     return;
   }

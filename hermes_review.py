@@ -11,6 +11,7 @@ import json
 import os
 import re
 import sys
+import time
 from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -42,6 +43,14 @@ MACHINE_MARKERS = (
     "<!-- hermes:",
     "<<<hermes:",
 )
+BOT_USER_ID = 2
+BOT_USERNAME = "bot-hermes-agent"
+MENTION_RE = re.compile(
+    r"@bot-hermes-agent\b|data-mention[^>]*\b(?:user[-_]?id|id)\s*=\s*[\"']?2\b",
+    re.I,
+)
+MENTION_CAP = 3
+MENTION_WAIT_SECONDS = 180
 
 PRIORITY_LABEL = {
     0: "unset",
@@ -51,6 +60,15 @@ PRIORITY_LABEL = {
     4: "urgent",
     5: "DO NOW",
 }
+
+
+def mentions_bot(text: str) -> bool:
+    return bool(MENTION_RE.search(text or ""))
+
+
+def _plain_comment(text: str) -> str:
+    stripped = re.sub(r"<[^>]+>", " ", text or "")
+    return html.unescape(stripped).strip()
 
 
 def load_env() -> None:
@@ -399,16 +417,16 @@ def _split_paras(text: str) -> list[str]:
 def _human_comments(raw: list[dict]) -> list[dict]:
     out = []
     for c in raw or []:
-        text = (c.get("comment") or "").strip()
-        if not text or any(m in text for m in MACHINE_MARKERS):
+        raw_text = (c.get("comment") or "").strip()
+        if not raw_text or any(m in raw_text for m in MACHINE_MARKERS):
             continue
-        who = "hermes"
-        if text.startswith(DISPOSITION_PREFIX) or text.lower().startswith("judge "):
-            who = "hermes"
-        elif "claiming" in text.lower() or text.lower().startswith("vikunja reaper"):
-            who = "hermes"
-        else:
-            who = "me"
+        author = c.get("author") or {}
+        uid = author.get("id")
+        uname = (author.get("username") or "").lower()
+        who = "hermes" if uid == BOT_USER_ID or uname == BOT_USERNAME else "me"
+        text = _plain_comment(raw_text)
+        if not text:
+            continue
         out.append({"who": who, "text": text, "at": c.get("created") or ""})
     return out
 
@@ -783,13 +801,6 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as exc:
                 self._json(500, {"error": str(exc)})
             return
-        m = re.fullmatch(r"/api/tasks/(\d+)/chat", path)
-        if m:
-            try:
-                self._json(200, discuss_status(int(m.group(1))))
-            except Exception as exc:
-                self._json(400, {"error": str(exc)})
-            return
         self._json(404, {"error": "not found"})
 
     def do_POST(self) -> None:
@@ -813,17 +824,6 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as exc:
                 self._json(400, {"error": str(exc)})
             return
-        m = re.fullmatch(r"/api/tasks/(\d+)/chat", path)
-        if m:
-            text = str(payload.get("text") or payload.get("message") or "").strip()
-            if not text:
-                self._json(400, {"error": "empty"})
-                return
-            try:
-                self._json(200, discuss_send(int(m.group(1)), text))
-            except Exception as exc:
-                self._json(400, {"error": str(exc)})
-            return
         m = re.fullmatch(r"/api/tasks/(\d+)/comment", path)
         if m:
             text = str(payload.get("text") or "").strip()
@@ -832,9 +832,13 @@ class Handler(BaseHTTPRequestHandler):
                 return
             try:
                 load_env()
+                tid = int(m.group(1))
                 with _client() as client:
-                    _comment(client, int(m.group(1)), text)
-                self._json(200, {"ok": True})
+                    _comment(client, tid, text)
+                    cr = client.get(f"/tasks/{tid}/comments")
+                    cr.raise_for_status()
+                    chat = _human_comments(cr.json() or [])
+                self._json(200, {"ok": True, "chat": chat})
             except Exception as exc:
                 self._json(400, {"error": str(exc)})
             return
@@ -855,7 +859,103 @@ class Handler(BaseHTTPRequestHandler):
         self._json(404, {"error": "not found"})
 
 
+def _iter_unreplied_mentions(vik: httpx.Client):
+    r = vik.get("/tasks", params={"filter": "done = false", "per_page": 100})
+    r.raise_for_status()
+    for task in r.json() or []:
+        tid = int(task["id"])
+        cr = vik.get(f"/tasks/{tid}/comments")
+        cr.raise_for_status()
+        comments = cr.json() or []
+        machine = hmc.list_machine(vik, tid)
+        last = int((machine.get("session") or {}).get("last_mention_comment_id") or 0)
+        for c in comments:
+            cid = int(c.get("id") or 0)
+            if cid <= last:
+                continue
+            author = c.get("author") or {}
+            uid = author.get("id")
+            uname = (author.get("username") or "").lower()
+            if uid == BOT_USER_ID or uname == BOT_USERNAME:
+                continue
+            text = c.get("comment") or ""
+            if any(m in text for m in MACHINE_MARKERS):
+                continue
+            if mentions_bot(text):
+                yield tid, cid, text
+
+
+def reply_mention(task_id: int, comment_id: int, raw_text: str) -> None:
+    user_text = _plain_comment(raw_text)
+    if not user_text:
+        raise RuntimeError("empty mention text")
+    before = discuss_status(task_id)
+    before_n = len(before.get("messages") or [])
+    result = discuss_send(task_id, user_text)
+    if result.get("status") == "busy":
+        raise RuntimeError(result.get("notice") or "webui busy")
+    deadline = time.time() + MENTION_WAIT_SECONDS
+    last = result
+    while time.time() < deadline:
+        last = discuss_status(task_id)
+        status = last.get("status")
+        if status == "streaming":
+            time.sleep(2)
+            continue
+        if status == "paused":
+            raise RuntimeError(last.get("notice") or "webui paused")
+        break
+    else:
+        raise RuntimeError("mention reply timed out")
+    new = (last.get("messages") or [])[before_n:]
+    reply = "\n\n".join(
+        m["text"] for m in new if m.get("who") == "hermes" and m.get("text")
+    ).strip()
+    if not reply:
+        raise RuntimeError("empty hermes reply")
+    load_env()
+    with _client() as vik:
+        _comment(vik, task_id, reply)
+        machine = hmc.list_machine(vik, task_id)
+        sid = (machine.get("session") or {}).get("webui_session_id") or ""
+        if not sid:
+            raise RuntimeError("missing webui_session_id after mention reply")
+        hmc.upsert_session(
+            vik,
+            task_id,
+            webui_session_id=sid,
+            extra={"last_mention_comment_id": comment_id},
+        )
+
+
+def run_mentions(*, scan_only: bool = False) -> int:
+    load_env()
+    found: list[tuple[int, int, str]] = []
+    with _client() as vik:
+        for item in _iter_unreplied_mentions(vik):
+            found.append(item)
+            if len(found) >= MENTION_CAP:
+                break
+    if not found:
+        print("mention: none")
+        return 0
+    for tid, cid, text in found:
+        print(f"mention: #{tid} comment {cid}")
+        if scan_only:
+            continue
+        try:
+            reply_mention(tid, cid, text)
+            print(f"mention: #{tid} replied")
+        except Exception as exc:
+            print(f"mention: #{tid} failed: {exc}", file=sys.stderr)
+            return 1
+    return 0
+
+
 def main() -> int:
+    if len(sys.argv) > 1 and sys.argv[1] == "mention":
+        scan_only = "--scan-only" in sys.argv[2:]
+        return run_mentions(scan_only=scan_only)
     load_env()
     if not os.environ.get("VIKUNJA_API_TOKEN"):
         print("VIKUNJA_API_TOKEN missing", file=sys.stderr)
