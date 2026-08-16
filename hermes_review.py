@@ -89,13 +89,20 @@ def _add_label(
 
 
 def _remove_label(
-    client: httpx.Client, task_id: int, title: str, ids: dict[str, int]
+    client: httpx.Client,
+    task_id: int,
+    title: str,
+    ids: dict[str, int],
+    attached: set[str] | None = None,
 ) -> None:
+    if attached is not None and title not in attached:
+        return
     lid = ids.get(title)
     if lid is None:
         return
     r = client.delete(f"/tasks/{task_id}/labels/{lid}")
-    if r.status_code not in {200, 204, 404}:
+    # Vikunja returns 403 (not 404) when the label is not on the task.
+    if r.status_code not in {200, 204, 404, 403}:
         r.raise_for_status()
 
 
@@ -366,37 +373,40 @@ def apply_decision(
             "percent_done": task.get("percent_done"),
             "labels": [l.get("title") for l in (task.get("labels") or [])],
         }
+        attached = {
+            l.get("title") for l in (task.get("labels") or []) if l.get("title")
+        }
         text = f"{DISPOSITION_PREFIX} {kind}"
         if note:
             text += f" — {note}"
         if kind == "approve":
+            _remove_label(client, task_id, "needs-review", ids, attached)
+            _remove_label(client, task_id, "in-progress", ids, attached)
+            _remove_label(client, task_id, "agent:ready", ids, attached)
             client.post(
                 f"/tasks/{task_id}",
                 json={"done": True, "percent_done": 100},
             ).raise_for_status()
-            _remove_label(client, task_id, "needs-review", ids)
-            _remove_label(client, task_id, "in-progress", ids)
-            _remove_label(client, task_id, "agent:ready", ids)
         elif kind == "remediate":
             _comment(client, task_id, text)
-            _remove_label(client, task_id, "judged", ids)
-            _remove_label(client, task_id, "needs-review", ids)
-            _remove_label(client, task_id, "in-progress", ids)
+            _remove_label(client, task_id, "judged", ids, attached)
+            _remove_label(client, task_id, "needs-review", ids, attached)
+            _remove_label(client, task_id, "in-progress", ids, attached)
             _add_label(client, task_id, "agent:ready", ids)
             text = ""  # already commented
         elif kind in {"noAction", "discard"}:
+            _remove_label(client, task_id, "needs-review", ids, attached)
+            _remove_label(client, task_id, "in-progress", ids, attached)
+            _remove_label(client, task_id, "agent:ready", ids, attached)
             client.post(
                 f"/tasks/{task_id}",
                 json={"done": True},
             ).raise_for_status()
-            _remove_label(client, task_id, "needs-review", ids)
-            _remove_label(client, task_id, "in-progress", ids)
-            _remove_label(client, task_id, "agent:ready", ids)
         elif kind == "human":
             _add_label(client, task_id, "human-only", ids)
-            _remove_label(client, task_id, "agent:ready", ids)
-            _remove_label(client, task_id, "needs-review", ids)
-            _remove_label(client, task_id, "in-progress", ids)
+            _remove_label(client, task_id, "agent:ready", ids, attached)
+            _remove_label(client, task_id, "needs-review", ids, attached)
+            _remove_label(client, task_id, "in-progress", ids, attached)
         elif kind == "snooze":
             if not not_before:
                 raise RuntimeError("snooze requires not_before")
@@ -455,6 +465,9 @@ class Handler(BaseHTTPRequestHandler):
             return {}
         raw = self.rfile.read(n)
         return json.loads(raw.decode("utf-8") or "{}")
+
+    def do_HEAD(self) -> None:
+        self.do_GET()
 
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
