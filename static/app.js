@@ -876,7 +876,7 @@ document.addEventListener("mousedown", e => {
 
 window.addEventListener("keydown", e => {
   const tag = (e.target.tagName || "").toLowerCase();
-  const typing = tag === "textarea" || tag === "input";
+  const typing = tag === "textarea" || tag === "input" || tag === "select" || e.target.isContentEditable;
   if (typing) {
     if (e.key === "Escape") { e.target.blur(); state.noteMode = null; state.reviseW = 0; render(); }
     if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
@@ -896,6 +896,7 @@ window.addEventListener("keydown", e => {
   if (e.key === "g") { state.gPending = true; return; }
   if (e.key === "?") { e.preventDefault(); state.shortcutsOpen = !state.shortcutsOpen; render(); return; }
   if (e.key === "Escape") { state.shortcutsOpen = false; state.noteMode = null; state.discarding = false; state.selected = {}; state.reviseW = 0; render(); return; }
+  if (state.noteMode || state.discarding || state.shortcutsOpen) return;
   if (state.view !== "review") return;
   if (e.key === "j") { e.preventDefault(); state.cursor = Math.min(pending().length - 1, state.cursor + 1); state.viewing = null; render(); }
   else if (e.key === "k") { e.preventDefault(); state.cursor = Math.max(0, state.cursor - 1); state.viewing = null; render(); }
