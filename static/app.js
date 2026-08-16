@@ -1,4 +1,4 @@
-/* Hermes Review — Catkin UI. Data from /api/board. Live Hermes chat is Phase 5. */
+/* Hermes Review — Catkin UI. Data from /api/board. Discuss is Hermes via :8789. */
 const INK = "#2B241B", MUTED = "#5A5347", GOLD = "#7A6020", GREEN = "#3D6B3E";
 const CLAY = "#8B3232", SLATE = "#3A5563", PARCH = "#F5F0E8", SURF = "#EAE3D6";
 const VERDICTS = {
@@ -7,6 +7,13 @@ const VERDICTS = {
   split:     { label: "split", color: GOLD, glyph: "⑂" },
   human:     { label: "human", color: SLATE, glyph: "△" },
   thin:      { label: "thin", color: MUTED, glyph: "?" }
+};
+const CLASSIF = {
+  "worker-ready":     { label: "worker:ready", color: GREEN },
+  "worker:escalate":  { label: "worker:escalate", color: GOLD },
+  "needs-review":     { label: "needs-review", color: SLATE },
+  "human-only":       { label: "human-only", color: SLATE },
+  "blocked":          { label: "blocked", color: MUTED }
 };
 const SECTIONS = ["description", "attempt", "artifacts", "log", "history", "meta"];
 const NAV = [
@@ -37,6 +44,9 @@ const state = {
   noteText: "",
   customWhen: "",
   chatDraft: "",
+  discuss: { taskId: null, messages: [], status: "idle", notice: null },
+  discussLoading: null,
+  chatTimer: null,
   shortcutsOpen: false,
   discarding: false,
   last: null,
@@ -64,6 +74,7 @@ async function loadBoard() {
 }
 
 function tickets() { return (state.board && state.board.tickets) || []; }
+function queueTickets() { return (state.board && state.board.queue) || []; }
 function pending() {
   return tickets().filter(t => t.pending && !isFilteredOut(t));
 }
@@ -216,11 +227,70 @@ async function sendChat() {
   const text = state.chatDraft.trim();
   if (!t || !text) return;
   try {
-    await postJSON("/api/tasks/" + t.id + "/comment", { text });
     state.chatDraft = "";
-    await loadBoard();
+    const data = await postJSON("/api/tasks/" + t.id + "/chat", { text });
+    state.discuss = {
+      taskId: t.id,
+      messages: data.messages || [],
+      status: data.status || "idle",
+      notice: data.notice || null
+    };
+    if (data.status === "streaming") scheduleChatPoll(t.id, Date.now());
   } catch (e) { state.error = e.message; }
   render();
+}
+
+function stopChatPoll() {
+  if (state.chatTimer) {
+    clearTimeout(state.chatTimer);
+    state.chatTimer = null;
+  }
+}
+
+async function loadDiscuss(taskId) {
+  const r = await fetch("/api/tasks/" + taskId + "/chat");
+  const data = await r.json();
+  if (!r.ok) throw new Error(data.error || "chat failed");
+  state.discuss = {
+    taskId,
+    messages: data.messages || [],
+    status: data.status || "idle",
+    notice: data.notice || null
+  };
+  return data;
+}
+
+function scheduleChatPoll(taskId, started) {
+  stopChatPoll();
+  const tick = async () => {
+    try {
+      const data = await loadDiscuss(taskId);
+      render();
+      if (data.status === "streaming" && Date.now() - started < 180000) {
+        state.chatTimer = setTimeout(tick, 1500);
+      } else if (data.status === "streaming") {
+        state.discuss.status = "busy";
+        state.discuss.notice = "Hermes is taking too long — check webui or send again";
+        render();
+      }
+    } catch (e) {
+      state.error = e.message;
+      render();
+    }
+  };
+  state.chatTimer = setTimeout(tick, 1500);
+}
+
+function ensureDiscuss(t) {
+  if (!t) return;
+  if (state.discuss.taskId === t.id) return;
+  if (state.discussLoading === t.id) return;
+  state.discussLoading = t.id;
+  loadDiscuss(t.id).then(() => { state.discussLoading = null; render(); }).catch(e => {
+    state.discussLoading = null;
+    state.error = e.message;
+    render();
+  });
 }
 
 function navHtml() {
@@ -233,9 +303,12 @@ function navHtml() {
 function renderHome() {
   const b = state.board;
   const p = pendingAll();
+  const q = queueTickets();
   const lead = p.length
     ? `${p.length} attempt${p.length === 1 ? " is" : "s are"} waiting on a verdict from you, and hermes opened a few tickets of its own along the way.`
-    : "Nothing is waiting on a verdict. Hermes is running on its heartbeat — nothing needs you right now.";
+    : q.length
+      ? `Nothing is waiting on a verdict. ${q.length} ticket${q.length === 1 ? " is" : "s are"} next up for agents.`
+      : "Nothing is waiting on a verdict, and the agent queue is empty.";
   const top = p.slice(0, 3).map(t => {
     const v = VERDICTS[t.judge.verdict] || VERDICTS.thin;
     return `<div data-open="${t.id}" style="padding:12px 0;border-top:1px solid rgba(43,36,27,0.10);cursor:pointer">
@@ -274,8 +347,14 @@ function renderHome() {
           <a href="#" data-view="human" class="mono" style="display:inline-block;margin-top:14px;font-size:11px;color:${GOLD}">the human-only list →</a>
         </div>
         <div>
-          <div class="mono" style="font-size:11px;letter-spacing:0.08em;color:${MUTED};display:flex;gap:12px;align-items:baseline">opened by hermes<span style="flex:1;height:1px;background:rgba(43,36,27,0.08)"></span></div>
-          <div class="mono" style="font-size:11px;color:${MUTED};padding:12px 0;border-top:1px solid rgba(43,36,27,0.10)">not tagged yet — workers do not mark origin</div>
+          <div class="mono" style="font-size:11px;letter-spacing:0.08em;color:${MUTED};display:flex;gap:12px;align-items:baseline">next up for agents<span style="flex:1;height:1px;background:rgba(43,36,27,0.08)"></span><span>${q.length}</span></div>
+          ${q.slice(0, 3).map(t => {
+            const c = CLASSIF[t.classification] || { label: t.classification || "ready", color: MUTED };
+            return `<div data-view="queue" style="padding:12px 0;border-top:1px solid rgba(43,36,27,0.10);cursor:pointer">
+              <div class="mono" style="font-size:11px;display:flex"><span>${esc(t.identifier)}</span><span style="color:${c.color};margin-left:10px">${esc(c.label)}</span><span style="flex:1"></span><span style="color:${t.priority >= 3 ? CLAY : MUTED}">${esc(t.priority_label)}</span></div>
+              <div style="font-size:15.5px;margin-top:4px">${esc(t.title)}</div>
+            </div>`;
+          }).join("") || `<div class="mono" style="font-size:11px;color:${MUTED};padding:12px 0;border-top:1px solid rgba(43,36,27,0.10)">none</div>`}
           <a href="#" data-view="queue" class="mono" style="display:inline-block;margin-top:14px;font-size:11px;color:${GOLD}">the whole queue →</a>
         </div>
         <div>
@@ -468,11 +547,15 @@ function actionBtn(kind, label, key, decided) {
 
 function renderReview() {
   const t = current();
+  ensureDiscuss(t);
   const decided = t && t.disposition && t.disposition.kind;
-  const chat = ((t && t.chat) || []).map(m =>
+  const msgs = (state.discuss.taskId === (t && t.id) ? state.discuss.messages : []) || [];
+  const notice = state.discuss.taskId === (t && t.id) ? state.discuss.notice : null;
+  const chat = msgs.map(m =>
     `<div><div class="mono" style="font-size:10px;letter-spacing:0.06em;color:${m.who === "me" ? GOLD : MUTED};margin-bottom:5px">${esc(m.who)}</div>
      <p style="font-size:15px;line-height:1.6;margin:0">${esc(m.text)}</p></div>`
-  ).join("") || `<div class="mono" style="font-size:11px;color:${MUTED}">Vikunja comments show here. Live Hermes chat is Phase 5. ⌘↵ posts a comment.</div>`;
+  ).join("") || `<div class="mono" style="font-size:11px;color:${MUTED}">⌘↵ sends to Hermes. Transcript stays here, not Vikunja.</div>`;
+  const pause = notice ? `<div class="mono" style="font-size:11px;color:${GOLD}">${esc(notice)}</div>` : "";
   const revise = state.noteMode === "remediate" ? `<div class="handle" data-drag="revise"></div>
     <aside style="width:${state.reviseW}px;flex:none;overflow:hidden;transition:width 400ms cubic-bezier(0.22,1,0.36,1);background:${SURF};display:flex;flex-direction:column">
       <div class="mono" style="padding:16px 22px 12px;border-bottom:1px solid rgba(43,36,27,0.14);font-size:11px;letter-spacing:0.08em;color:${MUTED}">revise note</div>
@@ -514,9 +597,9 @@ function renderReview() {
     ${state.chatOpen && t ? `<div class="handle" data-drag="chat"></div>
       <aside style="width:${state.chatW}px;flex:none;border-left:1px solid rgba(43,36,27,0.12);display:flex;flex-direction:column;min-height:0">
         <div class="mono" style="padding:16px 20px 12px;border-bottom:1px solid rgba(43,36,27,0.10);font-size:11px;letter-spacing:0.08em;color:${MUTED}">discuss · ${esc(t.identifier)}</div>
-        <div id="chat-scroll" style="flex:1;overflow-y:auto;padding:18px 20px 10px;display:flex;flex-direction:column;gap:18px">${chat}</div>
+        <div id="chat-scroll" style="flex:1;overflow-y:auto;padding:18px 20px 10px;display:flex;flex-direction:column;gap:18px">${chat}${pause}</div>
         <div style="flex:none;border-top:1px solid rgba(43,36,27,0.10);padding:12px 20px 16px">
-          <textarea id="chat-draft" rows="2" placeholder="comment on this attempt (Vikunja)" style="width:100%;background:${PARCH};border:1px solid rgba(43,36,27,0.20);border-radius:2px;padding:10px 12px;font-size:15px;resize:none">${esc(state.chatDraft)}</textarea>
+          <textarea id="chat-draft" rows="2" placeholder="discuss this attempt" style="width:100%;background:${PARCH};border:1px solid rgba(43,36,27,0.20);border-radius:2px;padding:10px 12px;font-size:15px;resize:none">${esc(state.chatDraft)}</textarea>
           <div style="display:flex;margin-top:8px"><button data-act="send-chat" style="background:none;border:0;font-family:'Maple Mono NF',monospace;font-size:11px;color:${GOLD};cursor:pointer;text-decoration:underline">send ⌘↵</button><span style="flex:1"></span><span class="mono" style="font-size:11px;color:${MUTED}">/ to focus</span></div>
         </div>
       </aside>` : ""}
@@ -524,12 +607,18 @@ function renderReview() {
 }
 
 function renderQueue() {
-  const rows = tickets().map(t => {
-    const v = VERDICTS[t.judge.verdict] || VERDICTS.thin;
+  const rows = queueTickets().map(t => {
+    const c = CLASSIF[t.classification] || { label: t.classification || "ready", color: MUTED };
+    const bits = [];
+    if (t.snoozed) bits.push("snoozed");
+    if ((t.labels || []).includes("worker:escalate")) bits.push("escalate");
+    const sub = bits.length
+      ? `<div class="mono" style="font-size:10.5px;color:${GOLD};margin-top:4px">${esc(bits.join(" · "))}</div>`
+      : "";
     return `<div style="display:grid;grid-template-columns:110px 1fr 150px 100px 130px;gap:0;border-top:1px solid rgba(43,36,27,0.10)">
       <div style="padding:12px 12px 12px 0" class="mono"><a href="${esc(t.href)}" target="_blank">${esc(t.identifier)} ↗</a></div>
-      <div style="padding:12px 12px 12px 0">${esc(t.title)}${t.disposition ? `<div class="mono" style="font-size:10.5px;color:${GOLD};margin-top:4px">${esc(t.disposition.kind)}</div>` : ""}</div>
-      <div style="padding:12px;color:${v.color}" class="mono">${esc(v.label)}</div>
+      <div style="padding:12px 12px 12px 0">${esc(t.title)}${sub}</div>
+      <div style="padding:12px;color:${c.color}" class="mono">${esc(c.label)}</div>
       <div style="padding:12px;color:${t.priority >= 3 ? CLAY : MUTED}" class="mono">${esc(t.priority_label)}</div>
       <div style="padding:12px" class="mono">${esc(ago(t.age))}</div>
     </div>`;

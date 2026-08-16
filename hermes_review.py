@@ -14,7 +14,7 @@ import sys
 from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -30,6 +30,12 @@ TZ = ZoneInfo("America/Los_Angeles")
 HOST = os.environ.get("HERMES_REVIEW_HOST", "localhost")
 PORT = int(os.environ.get("HERMES_REVIEW_PORT", "8789"))
 PREFLIGHT_LOG = HERMES_HOME / "logs" / "vikunja_preflight.log"
+WEBUI_BASE = os.environ.get("HERMES_WEBUI_URL", "http://127.0.0.1:8787")
+WEBUI_ENV = Path("/home/julian/projects/hermes-webui/.env")
+REVIEW_MODEL = "deepseek/deepseek-v4-flash"
+REVIEW_TOOLSETS = ["file"]
+CTX_OPEN = "[[review-context]]"
+CTX_CLOSE = "[[/review-context]]"
 TAILNET = ipaddress.ip_network((0x64400000, 10))  # RFC 6598 CGNAT base /10
 DISPOSITION_PREFIX = "Hermes Review:"
 MACHINE_MARKERS = (
@@ -110,6 +116,267 @@ def _comment(client: httpx.Client, task_id: int, text: str) -> None:
     client.put(f"/tasks/{task_id}/comments", json={"comment": text}).raise_for_status()
 
 
+def _webui_password() -> str:
+    if WEBUI_ENV.exists():
+        for raw in WEBUI_ENV.read_text().splitlines():
+            if raw.startswith("HERMES_WEBUI_PASSWORD="):
+                return raw.split("=", 1)[1].strip().strip('"').strip("'")
+    return os.environ.get("HERMES_WEBUI_PASSWORD", "")
+
+
+class WebuiClient:
+    """Loopback client for hermes-webui. Never forwards Origin/Referer."""
+
+    def __init__(self) -> None:
+        self._http = httpx.Client(base_url=WEBUI_BASE, timeout=30.0)
+        self._authed = False
+
+    def login(self) -> None:
+        password = _webui_password()
+        if not password:
+            raise RuntimeError("HERMES_WEBUI_PASSWORD missing")
+        r = self._http.post("/api/auth/login", json={"password": password})
+        r.raise_for_status()
+        self._authed = True
+
+    def request(self, method: str, path: str, **kwargs) -> httpx.Response:
+        if not self._authed:
+            self.login()
+        r = self._http.request(method, path, **kwargs)
+        if r.status_code == 401:
+            self._authed = False
+            self.login()
+            r = self._http.request(method, path, **kwargs)
+        return r
+
+
+_webui = WebuiClient()
+
+
+def _msg_text(content) -> str:
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        bits = []
+        for part in content:
+            if isinstance(part, str):
+                bits.append(part)
+            elif isinstance(part, dict):
+                bits.append(str(part.get("text") or part.get("content") or ""))
+        return "".join(bits)
+    return str(content or "")
+
+
+def _strip_envelope(text: str) -> str:
+    start = text.find(CTX_OPEN)
+    end = text.find(CTX_CLOSE)
+    if start < 0 or end < 0 or end < start:
+        return text.strip()
+    return (text[:start] + text[end + len(CTX_CLOSE) :]).strip()
+
+
+def _session_messages(session: dict) -> list[dict]:
+    out = []
+    for m in session.get("messages") or []:
+        role = m.get("role") or ""
+        if role not in {"user", "assistant"}:
+            continue
+        text = _strip_envelope(_msg_text(m.get("content")))
+        if not text:
+            continue
+        out.append(
+            {
+                "who": "me" if role == "user" else "hermes",
+                "text": text,
+                "at": str(m.get("timestamp") or ""),
+            }
+        )
+    return out
+
+
+def _webui_session(session_id: str) -> dict:
+    r = _webui.request(
+        "GET", "/api/session", params={"session_id": session_id, "messages": 1}
+    )
+    if r.status_code == 404:
+        return {}
+    r.raise_for_status()
+    data = r.json() or {}
+    if isinstance(data.get("session"), dict):
+        return data["session"]
+    return data if isinstance(data, dict) else {}
+
+
+def _pending_notice(session_id: str) -> str | None:
+    appr = _webui.request(
+        "GET", "/api/approval/pending", params={"session_id": session_id}
+    )
+    if appr.status_code == 200 and (appr.json() or {}).get("pending"):
+        return "Hermes is waiting for approval in webui"
+    clar = _webui.request(
+        "GET", "/api/clarify/pending", params={"session_id": session_id}
+    )
+    if clar.status_code == 200 and (clar.json() or {}).get("pending"):
+        return "Hermes is waiting for a clarify answer in webui"
+    return None
+
+
+def _ensure_session(vik: httpx.Client, task: dict, machine: dict) -> str:
+    existing = (machine.get("session") or {}).get("webui_session_id") or ""
+    if existing:
+        sess = _webui_session(existing)
+        if sess:
+            return existing
+    attempts = machine.get("attempts") or []
+    git = (attempts[-1].get("git") if attempts else {}) or {}
+    repo = git.get("repo") or ""
+    workspace = repo if repo and Path(repo).is_dir() else "/home/julian"
+    r = _webui.request(
+        "POST",
+        "/api/session/new",
+        json={
+            "worktree": False,
+            "profile": "default",
+            "model": REVIEW_MODEL,
+            "workspace": workspace,
+            "enabled_toolsets": REVIEW_TOOLSETS,
+        },
+    )
+    r.raise_for_status()
+    body = r.json() or {}
+    sess = body.get("session") or body
+    sid = sess.get("session_id") or sess.get("id")
+    if not sid:
+        raise RuntimeError("webui session/new returned no session_id")
+    ident = f"#{task['id']}"
+    _webui.request(
+        "POST",
+        "/api/session/rename",
+        json={"session_id": sid, "title": f"review · {ident}"},
+    ).raise_for_status()
+    hmc.upsert_session(vik, int(task["id"]), webui_session_id=sid)
+    return sid
+
+
+def _context_envelope(task: dict, machine: dict, artifacts: list) -> str:
+    ident = f"#{task['id']}"
+    title = task.get("title") or ident
+    attempts = machine.get("attempts") or []
+    judges = machine.get("judges") or []
+    latest_a = attempts[-1] if attempts else {}
+    latest_j = judges[-1] if judges else {}
+    summary = latest_a.get("summary") or []
+    lines = [
+        CTX_OPEN,
+        f"Ticket {ident}: {title}",
+        f"Judge: {latest_j.get('verdict') or '—'} ({latest_j.get('model') or '—'})",
+        f"Attempt {latest_a.get('n') or 0} summary:",
+    ]
+    if summary:
+        lines.extend(f"- {s}" for s in summary[:8])
+    else:
+        lines.append("- (none)")
+    diff = ""
+    for art in artifacts:
+        if art.get("kind") == "diff" and art.get("diff"):
+            diff = art["diff"]
+            break
+    if diff:
+        if len(diff) > 12000:
+            diff = diff[:12000] + "\n… truncated …\n"
+        lines.append("Diff (truncated):")
+        lines.append(diff)
+    lines.append(
+        "Do not change Vikunja labels or mark tasks done. Julian dispositions with the buttons."
+    )
+    lines.append(CTX_CLOSE)
+    return "\n".join(lines)
+
+
+def discuss_status(task_id: int) -> dict:
+    load_env()
+    with _client() as vik:
+        machine = hmc.list_machine(vik, task_id)
+        sid = (machine.get("session") or {}).get("webui_session_id") or ""
+        if not sid:
+            return {
+                "messages": [],
+                "status": "idle",
+                "session_id": None,
+                "notice": None,
+            }
+        sess = _webui_session(sid)
+        if not sess:
+            return {
+                "messages": [],
+                "status": "missing",
+                "session_id": sid,
+                "notice": "session gone in webui — send to start a new one",
+            }
+        notice = _pending_notice(sid)
+        streaming = bool(sess.get("active_stream_id"))
+        status = "paused" if notice else ("streaming" if streaming else "idle")
+        return {
+            "messages": _session_messages(sess),
+            "status": status,
+            "session_id": sid,
+            "notice": notice,
+            "model": sess.get("model"),
+            "enabled_toolsets": sess.get("enabled_toolsets"),
+        }
+
+
+def discuss_send(task_id: int, user_text: str) -> dict:
+    text = (user_text or "").strip()
+    if not text:
+        raise RuntimeError("empty")
+    load_env()
+    with _client() as vik:
+        task_r = vik.get(f"/tasks/{task_id}")
+        task_r.raise_for_status()
+        task = task_r.json()
+        machine = hmc.list_machine(vik, task_id)
+        assembled = _assemble_ticket(vik, task, "http://localhost:8788")
+        sid = _ensure_session(vik, task, machine)
+        sess = _webui_session(sid)
+        first = not _session_messages(sess)
+        payload = (
+            _context_envelope(task, machine, assembled.get("artifacts") or [])
+            + "\n\n"
+            + text
+            if first
+            else text
+        )
+        r = _webui.request(
+            "POST",
+            "/api/chat/start",
+            json={
+                "session_id": sid,
+                "message": payload,
+                "model": REVIEW_MODEL,
+                "profile": "default",
+            },
+        )
+        if r.status_code == 409:
+            return {
+                "ok": False,
+                "status": "busy",
+                "session_id": sid,
+                "notice": "Hermes is busy (webui or another send)",
+                "messages": _session_messages(sess),
+            }
+        r.raise_for_status()
+        started = r.json() or {}
+        return {
+            "ok": True,
+            "status": "streaming",
+            "session_id": sid,
+            "stream_id": started.get("stream_id"),
+            "notice": None,
+            "messages": _session_messages(_webui_session(sid)),
+        }
+
+
 def _heartbeat() -> dict[str, str]:
     last = ""
     if PREFLIGHT_LOG.exists():
@@ -161,10 +428,14 @@ def _parse_disposition(comments: list[dict]) -> dict | None:
 def _classify(labels: set[str]) -> str:
     if "human-only" in labels:
         return "human-only"
-    if "agent:ready" in labels:
-        return "agent-ready"
     if "needs-review" in labels or "judged" in labels:
         return "needs-review"
+    if "worker:escalate" in labels:
+        return "worker:escalate"
+    if "worker:ready" in labels:
+        return "worker-ready"
+    if "blocked" in labels:
+        return "blocked"
     return "unclassified"
 
 
@@ -274,6 +545,7 @@ def _assemble_ticket(client: httpx.Client, task: dict, ui: str) -> dict:
         "artifacts": artifacts,
         "log": log_lines,
         "chat": chat,
+        "session_id": (machine.get("session") or {}).get("webui_session_id"),
         "drafts": [],
         "control": machine.get("control"),
         "snoozed": snoozed,
@@ -292,16 +564,21 @@ def build_board(host_header: str | None) -> dict:
         tasks = r.json() or []
         tickets = []
         human_only = []
+        queue = []
         for task in tasks:
             labels = {l.get("title") for l in (task.get("labels") or [])}
             if "human-only" in labels:
                 human_only.append(_assemble_ticket(client, task, ui))
+                continue
             if "judged" in labels or "needs-review" in labels:
                 tickets.append(_assemble_ticket(client, task, ui))
-        # also include recently done reviewed tasks for metrics (last 30d is not
-        # filterable cheaply — use open judged/needs-review only, honest)
+                continue
+            if "worker:ready" in labels or "worker:escalate" in labels:
+                queue.append(_assemble_ticket(client, task, ui))
+        # Metrics stay on open judged/needs-review only (honest empty if none).
     tickets.sort(key=lambda t: (-t["priority"], t["id"]))
     human_only.sort(key=lambda t: (-t["priority"], t["id"]))
+    queue.sort(key=lambda t: (-t["priority"], t["id"]))
     pending = [t for t in tickets if t["pending"]]
     activity = []
     for t in tickets:
@@ -343,6 +620,8 @@ def build_board(host_header: str | None) -> dict:
         "vikunja_ui": ui,
         "tickets": tickets,
         "pending_ids": [t["id"] for t in pending],
+        "queue": queue,
+        "queue_ids": [t["id"] for t in queue],
         "human_only": human_only,
         "activity": list(reversed(activity)),
         "metrics": {
@@ -352,6 +631,7 @@ def build_board(host_header: str | None) -> dict:
             "judge_thin": n_thin,
             "open_judged": len(tickets),
             "pending": len(pending),
+            "ready": len(queue),
             "agreement": f"{agree}/{compared}" if compared else "—",
             "first_attempt": "—",
         },
@@ -382,7 +662,8 @@ def apply_decision(
         if kind == "approve":
             _remove_label(client, task_id, "needs-review", ids, attached)
             _remove_label(client, task_id, "in-progress", ids, attached)
-            _remove_label(client, task_id, "agent:ready", ids, attached)
+            _remove_label(client, task_id, "worker:ready", ids, attached)
+            _remove_label(client, task_id, "worker:escalate", ids, attached)
             client.post(
                 f"/tasks/{task_id}",
                 json={"done": True, "percent_done": 100},
@@ -392,19 +673,21 @@ def apply_decision(
             _remove_label(client, task_id, "judged", ids, attached)
             _remove_label(client, task_id, "needs-review", ids, attached)
             _remove_label(client, task_id, "in-progress", ids, attached)
-            _add_label(client, task_id, "agent:ready", ids)
+            _add_label(client, task_id, "worker:ready", ids)
             text = ""  # already commented
         elif kind in {"noAction", "discard"}:
             _remove_label(client, task_id, "needs-review", ids, attached)
             _remove_label(client, task_id, "in-progress", ids, attached)
-            _remove_label(client, task_id, "agent:ready", ids, attached)
+            _remove_label(client, task_id, "worker:ready", ids, attached)
+            _remove_label(client, task_id, "worker:escalate", ids, attached)
             client.post(
                 f"/tasks/{task_id}",
                 json={"done": True},
             ).raise_for_status()
         elif kind == "human":
             _add_label(client, task_id, "human-only", ids)
-            _remove_label(client, task_id, "agent:ready", ids, attached)
+            _remove_label(client, task_id, "worker:ready", ids, attached)
+            _remove_label(client, task_id, "worker:escalate", ids, attached)
             _remove_label(client, task_id, "needs-review", ids, attached)
             _remove_label(client, task_id, "in-progress", ids, attached)
         elif kind == "snooze":
@@ -433,7 +716,7 @@ def human_action(task_id: int, action: str, note: str = "") -> dict:
             client.post(f"/tasks/{task_id}", json={"done": False}).raise_for_status()
         elif action == "hand":
             _remove_label(client, task_id, "human-only", ids)
-            _add_label(client, task_id, "agent:ready", ids)
+            _add_label(client, task_id, "worker:ready", ids)
             _comment(
                 client, task_id, "Handed to hermes — pick up on the next heartbeat."
             )
@@ -500,6 +783,13 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as exc:
                 self._json(500, {"error": str(exc)})
             return
+        m = re.fullmatch(r"/api/tasks/(\d+)/chat", path)
+        if m:
+            try:
+                self._json(200, discuss_status(int(m.group(1))))
+            except Exception as exc:
+                self._json(400, {"error": str(exc)})
+            return
         self._json(404, {"error": "not found"})
 
     def do_POST(self) -> None:
@@ -520,6 +810,17 @@ class Handler(BaseHTTPRequestHandler):
                     payload.get("not_before"),
                 )
                 self._json(200, result)
+            except Exception as exc:
+                self._json(400, {"error": str(exc)})
+            return
+        m = re.fullmatch(r"/api/tasks/(\d+)/chat", path)
+        if m:
+            text = str(payload.get("text") or payload.get("message") or "").strip()
+            if not text:
+                self._json(400, {"error": "empty"})
+                return
+            try:
+                self._json(200, discuss_send(int(m.group(1)), text))
             except Exception as exc:
                 self._json(400, {"error": str(exc)})
             return
