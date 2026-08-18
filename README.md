@@ -13,3 +13,24 @@ Catkin dashboard for judged Vikunja tasks. LAN / tailnet only.
 export XDG_RUNTIME_DIR=/run/user/$(id -u)
 systemctl --user restart hermes-review
 ```
+
+## URL state
+
+Restorable view state lives in the query string. Clicks and keyboard navigation call `history.pushState` (no full reload). Reloads, pasted links, and browser back/forward re-apply the same fields. Invalid or unknown parameters fall back to the defaults below.
+
+| Param | Meaning | Default if missing or invalid |
+|---|---|---|
+| `view` | `home` · `review` · `queue` · `human` · `timeline` · `stats` | `home` |
+| `task` | Vikunja task id in the review pane | none |
+| `cursor` | index in the pending review list | `0` |
+| `filter` | `all` · `low` · `high` · or a verdict (`approve` / `remediate` / `split` / `human` / `thin`) | `all` |
+| `open` | comma-separated open review sections | `description,attempt,history` |
+| `human` | expanded row on the human-only list | none |
+
+Not encoded: drafts, toasts, discard/revise overlays, pane widths, multi-select, artifact/compare expand.
+
+Example: `http://localhost:8789/?view=review&task=52`
+
+```bash
+node --test tests/test_url_state.js
+```

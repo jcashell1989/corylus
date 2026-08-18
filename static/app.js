@@ -64,6 +64,30 @@ function esc(s) {
 }
 function $(sel, root) { return (root || document).querySelector(sel); }
 
+let applyingUrl = false;
+let urlBoot = true;
+
+function currentQuery() {
+  return (window.location.search || "").replace(/^\?/, "");
+}
+
+function syncUrl() {
+  if (applyingUrl) return;
+  const next = HermesReviewUrl.serialize(HermesReviewUrl.snapshot(state));
+  if (next === currentQuery()) {
+    urlBoot = false;
+    return;
+  }
+  const url = next ? ("?" + next) : (window.location.pathname || "/");
+  if (urlBoot) {
+    history.replaceState(null, "", url);
+    urlBoot = false;
+  } else {
+    history.pushState(null, "", url);
+  }
+}
+
+
 async function loadBoard() {
   const r = await fetch("/api/board");
   const data = await r.json();
@@ -706,6 +730,7 @@ function render() {
   </header>${body}${overlays()}`;
   const cs = document.getElementById("chat-scroll");
   if (cs) cs.scrollTop = cs.scrollHeight;
+  syncUrl();
 }
 
 function startDrag(e, key, dir, min, max) {
@@ -858,11 +883,22 @@ window.addEventListener("resize", () => {
   render();
 });
 
+window.addEventListener("popstate", () => {
+  applyingUrl = true;
+  HermesReviewUrl.apply(state, HermesReviewUrl.parse(window.location.search));
+  render();
+  applyingUrl = false;
+});
+
 loadBoard().then(() => {
+  applyingUrl = true;
+  HermesReviewUrl.apply(state, HermesReviewUrl.parse(window.location.search));
   const w = window.innerWidth;
   state.chatOpen = w >= 1280;
   state.railOpen = w >= 1040;
   render();
+  applyingUrl = false;
+  syncUrl();
 }).catch(err => {
   document.getElementById("app").innerHTML = `<div style="padding:40px;color:${CLAY}">${esc(err.message)}</div>`;
 });
