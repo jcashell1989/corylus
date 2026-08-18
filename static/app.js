@@ -167,7 +167,10 @@ function sideBySide(diff) {
 async function postJSON(url, body) {
   const r = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      "X-Hermes-Review-Token": window.HERMES_REVIEW_TOKEN
+    },
     body: JSON.stringify(body || {})
   });
   const data = await r.json().catch(() => ({}));

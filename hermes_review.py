@@ -1,7 +1,12 @@
 #!/home/julian/.hermes/hermes-agent/venv/bin/python
 """Hermes Review — Catkin dashboard on :8789.
 
-Token stays on the box. The browser talks only to this process.
+Vikunja's API token stays on the box. The browser talks only to this process.
+
+Write routes require a per-start secret (X-Hermes-Review-Token) injected into
+the HTML. Host must match HERMES_REVIEW_HOST (the tailnet bind), not localhost.
+That blocks CSRF and DNS rebinding. A tailnet peer who loads the page can still
+scrape the token; that is the remaining threat.
 """
 from __future__ import annotations
 
@@ -10,6 +15,7 @@ import ipaddress
 import json
 import os
 import re
+import secrets
 import sys
 import time
 from datetime import datetime, timedelta
@@ -34,6 +40,9 @@ STATIC = BASE_DIR / "static"
 TZ = ZoneInfo("America/Los_Angeles")
 HOST = os.environ.get("HERMES_REVIEW_HOST", "localhost")
 PORT = int(os.environ.get("HERMES_REVIEW_PORT", "8789"))
+WRITE_TOKEN = secrets.token_urlsafe(32)
+TOKEN_HEADER = "X-Hermes-Review-Token"
+INDEX_TOKEN_PLACEHOLDER = "{{HERMES_REVIEW_TOKEN}}"
 PREFLIGHT_LOG = HERMES_HOME / "logs" / "vikunja_preflight.log"
 WEBUI_BASE = os.environ.get("HERMES_WEBUI_URL", "http://127.0.0.1:8787")
 WEBUI_ENV = Path("/home/julian/projects/hermes-webui/.env")
@@ -797,15 +806,41 @@ class Handler(BaseHTTPRequestHandler):
         raw = self.rfile.read(n)
         return json.loads(raw.decode("utf-8") or "{}")
 
+    def _host_ok(self) -> bool:
+        host = (self.headers.get("Host") or "").strip()
+        if "]" in host:
+            name = host.split("]")[0] + "]"
+            name = name.strip("[]")
+        else:
+            name = host.rsplit(":", 1)[0] if host else ""
+        return name == HOST
+
+    def _write_ok(self) -> bool:
+        got = self.headers.get(TOKEN_HEADER) or ""
+        return secrets.compare_digest(got, WRITE_TOKEN)
+
+    def _refuse(self, message: str) -> None:
+        try:
+            n = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            n = 0
+        if n > 0:
+            self.rfile.read(n)
+        self._json(403, {"error": message})
+
     def do_HEAD(self) -> None:
         self.do_GET()
 
     def do_GET(self) -> None:
+        if not self._host_ok():
+            self._json(403, {"error": "Host header refused"})
+            return
         parsed = urlparse(self.path)
         path = parsed.path
         if path in {"/", "/index.html"}:
-            body = (STATIC / "index.html").read_bytes()
-            self._send(200, body, "text/html; charset=utf-8")
+            page = (STATIC / "index.html").read_text(encoding="utf-8")
+            page = page.replace(INDEX_TOKEN_PLACEHOLDER, WRITE_TOKEN)
+            self._send(200, page.encode("utf-8"), "text/html; charset=utf-8")
             return
         if path.startswith("/static/"):
             rel = path[len("/static/") :]
@@ -834,6 +869,12 @@ class Handler(BaseHTTPRequestHandler):
         self._json(404, {"error": "not found"})
 
     def do_POST(self) -> None:
+        if not self._host_ok():
+            self._refuse("Host header refused")
+            return
+        if not self._write_ok():
+            self._refuse(f"missing or bad {TOKEN_HEADER}")
+            return
         parsed = urlparse(self.path)
         path = parsed.path
         try:

@@ -7,7 +7,7 @@ Catkin dashboard for judged Vikunja tasks. LAN / tailnet only.
 - Diffs via `git-range` when an attempt has git pointers
 - Writes dispositions back to Vikunja (labels + comments + `not_before`)
 - Discuss column is a per-ticket Hermes session via loopback webui (`127.0.0.1:8787`). Browser never talks to `:8787`. Transcript is not copied to Vikunja.
-- Token and webui password never leave the box
+- Vikunja API token never leaves the box. Writes require a per-start `X-Hermes-Review-Token` (injected into the HTML) and `Host: localhost`. That is CSRF / rebinding protection, not a tailnet ACL: a peer who loads the page can scrape the token. `Host: localhost` is refused on purpose so this Mac can use the tailnet bind.
 
 ```bash
 export XDG_RUNTIME_DIR=/run/user/$(id -u)
@@ -33,4 +33,5 @@ Example: `http://localhost:8789/?view=review&task=52`
 
 ```bash
 node --test tests/test_url_state.js
+~/.hermes/hermes-agent/venv/bin/python -m unittest tests/test_write_auth.py
 ```
