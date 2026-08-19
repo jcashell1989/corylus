@@ -32,6 +32,6 @@ Not encoded: drafts, toasts, discard/revise overlays, pane widths, multi-select,
 Example: `http://localhost:8789/?view=review&task=52`
 
 ```bash
-node --test tests/test_url_state.js
+node --test tests/test_url_state.js tests/test_disposition.js
 ~/.hermes/hermes-agent/venv/bin/python -m unittest tests/test_write_auth.py
 ```

@@ -47,7 +47,7 @@ const state = {
   customWhen: "",
   chatDraft: "",
   shortcutsOpen: false,
-  discarding: false,
+  staged: null,
   last: null,
   toast: "",
   sessionDecided: 0,
@@ -182,9 +182,16 @@ async function decide(kind, note, notBefore) {
   const ids = Object.keys(state.selected).filter(k => state.selected[k]).map(Number);
   const targets = ids.length > 1 ? ids : [current() && current().id];
   if (!targets[0]) return;
-  if (kind === "remediate" && note === undefined) return openNote("remediate");
-  if (kind === "snooze" && notBefore === undefined && note === undefined) return openNote("snooze");
-  if (kind === "noAction" && note === undefined) { state.discarding = true; render(); return; }
+  const step = HermesReviewDisposition.intent(kind, {
+    note: note,
+    notBefore: notBefore,
+    staged: state.staged
+  });
+  if (step.action === "openNote") return openNote(step.kind);
+  if (step.action === "stage") { state.staged = step.kind; render(); return; }
+  kind = step.kind;
+  if (step.note !== undefined) note = step.note;
+  if (step.notBefore !== undefined) notBefore = step.notBefore;
   try {
     for (const id of targets) {
       await postJSON("/api/tasks/" + id + "/decide", {
@@ -197,7 +204,7 @@ async function decide(kind, note, notBefore) {
     state.viewing = null;
     state.noteMode = null;
     state.reviseW = 0;
-    state.discarding = false;
+    state.staged = null;
     state.toast = targets.length > 1 ? ("a verdict applies to all " + targets.length) : kind;
     state.cursor = 0;
     await loadBoard();
@@ -668,7 +675,7 @@ function overlays() {
   if (state.error) html += `<div style="position:fixed;bottom:16px;left:22px;background:${CLAY};color:${PARCH};padding:8px 12px;font-size:13px;z-index:30">${esc(state.error)}</div>`;
   if (state.shortcutsOpen) {
     const keys = [
-      ["j / k", "next / previous"], ["a", "approve"], ["r", "revise"], ["c", "discard"],
+      ["j / k", "next / previous"], ["a", "stage approve"], ["r", "revise"], ["c", "stage discard"],
       ["h", "human-only"], ["s", "snooze"], ["u", "undo"], ["1–6", "toggle sections"],
       ["[ / ]", "queue / discuss"], ["g then o/r/q/h/t/s", "go to view"], ["/", "focus discuss"], ["?", "this card"]
     ];
@@ -702,12 +709,28 @@ function overlays() {
       <button class="btn btn-fill" data-act="confirm-snooze" style="margin-top:18px">snooze until ${esc(state.customWhen || state.noteText)}</button>
     </div></div>`;
   }
-  if (state.discarding) {
+  if (state.staged === "noAction") {
     html += `<div class="scrim" data-act="close-overlay"><div class="card" style="max-width:460px" onclick="event.stopPropagation()">
       <div style="width:32px;height:2px;background:${CLAY};margin-bottom:16px"></div>
       <h2 class="play" style="font-size:26px;margin:0 0 12px">Discard the work on ${esc((current() || {}).identifier || "")}?</h2>
       <p style="font-size:16px;line-height:1.55;color:${MUTED}">The attempt is thrown away and the ticket closes with no action. Hermes will not pick it up again.</p>
-      <button class="btn" data-act="confirm-discard" style="margin-top:16px;background:${CLAY};color:${PARCH};border-color:${CLAY}">discard the work</button>
+      <button class="btn" data-act="confirm-stage" style="margin-top:16px;background:${CLAY};color:${PARCH};border-color:${CLAY}">confirm discard</button>
+    </div></div>`;
+  }
+  if (state.staged === "approve") {
+    html += `<div class="scrim" data-act="close-overlay"><div class="card" style="max-width:460px" onclick="event.stopPropagation()">
+      <div class="rule" style="margin-bottom:16px"></div>
+      <h2 class="play" style="font-size:26px;margin:0 0 12px">Approve ${esc((current() || {}).identifier || "")}?</h2>
+      <p style="font-size:16px;line-height:1.55;color:${MUTED}">This writes the verdict to Vikunja. Press confirm, or Escape to cancel.</p>
+      <button class="btn btn-fill" data-act="confirm-stage" style="margin-top:16px">confirm</button>
+    </div></div>`;
+  }
+  if (state.staged === "human") {
+    html += `<div class="scrim" data-act="close-overlay"><div class="card" style="max-width:460px" onclick="event.stopPropagation()">
+      <div class="rule" style="margin-bottom:16px"></div>
+      <h2 class="play" style="font-size:26px;margin:0 0 12px">Mark ${esc((current() || {}).identifier || "")} human-only?</h2>
+      <p style="font-size:16px;line-height:1.55;color:${MUTED}">Agents will stop working this ticket. Press confirm, or Escape to cancel.</p>
+      <button class="btn btn-fill" data-act="confirm-stage" style="margin-top:16px">confirm</button>
     </div></div>`;
   }
   return html;
@@ -816,8 +839,8 @@ document.addEventListener("click", async e => {
   else if (name === "snooze") decide("snooze");
   else if (name === "confirm-revise") decide("remediate", (document.getElementById("note-text") || {}).value || state.noteText);
   else if (name === "confirm-snooze") decide("snooze", state.noteText, snoozeUntil());
-  else if (name === "confirm-discard") decide("noAction", "discarded");
-  else if (name === "cancel-note" || name === "close-overlay") { state.noteMode = null; state.discarding = false; state.shortcutsOpen = false; state.reviseW = 0; render(); }
+  else if (name === "confirm-stage" && state.staged) decide(state.staged, HermesReviewDisposition.confirmNote(state.staged));
+  else if (name === "cancel-note" || name === "close-overlay") { state.noteMode = null; state.staged = null; state.shortcutsOpen = false; state.reviseW = 0; render(); }
   else if (name === "toggle-rail") { state.railOpen = !state.railOpen; render(); }
   else if (name === "toggle-chat") { state.chatOpen = !state.chatOpen; render(); }
   else if (name === "shortcuts") { state.shortcutsOpen = !state.shortcutsOpen; render(); }
@@ -862,8 +885,15 @@ window.addEventListener("keydown", e => {
   }
   if (e.key === "g") { state.gPending = true; return; }
   if (e.key === "?") { e.preventDefault(); state.shortcutsOpen = !state.shortcutsOpen; render(); return; }
-  if (e.key === "Escape") { state.shortcutsOpen = false; state.noteMode = null; state.discarding = false; state.selected = {}; state.reviseW = 0; render(); return; }
-  if (state.noteMode || state.discarding || state.shortcutsOpen) return;
+  if (e.key === "Escape") { state.shortcutsOpen = false; state.noteMode = null; state.staged = null; state.selected = {}; state.reviseW = 0; render(); return; }
+  if (state.staged) {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      decide(state.staged, HermesReviewDisposition.confirmNote(state.staged));
+    }
+    return;
+  }
+  if (state.noteMode || state.shortcutsOpen) return;
   if (state.view !== "review") return;
   if (e.key === "j") { e.preventDefault(); state.cursor = Math.min(pending().length - 1, state.cursor + 1); state.viewing = null; render(); }
   else if (e.key === "k") { e.preventDefault(); state.cursor = Math.max(0, state.cursor - 1); state.viewing = null; render(); }
