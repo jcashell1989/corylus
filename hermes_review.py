@@ -304,7 +304,7 @@ def _context_envelope(task: dict, machine: dict, artifacts: list) -> str:
     attempts = machine.get("attempts") or []
     judges = machine.get("judges") or []
     latest_a = attempts[-1] if attempts else {}
-    latest_j = judges[-1] if judges else {}
+    latest_j = judge_for_attempt(judges, latest_a.get("n"))
     summary = latest_a.get("summary") or []
     lines = [
         CTX_OPEN,
@@ -483,6 +483,17 @@ def _classify(labels: set[str]) -> str:
     return "unclassified"
 
 
+def judge_for_attempt(judges: list | None, attempt_n) -> dict:
+    """Judge comment for this attempt, not judges[-1] (td-b2b873)."""
+    n = int(attempt_n or 0)
+    if n <= 0:
+        return {}
+    for j in reversed(list(judges or [])):
+        if int(j.get("attempt") or 0) == n:
+            return j
+    return {}
+
+
 def serialize_judge(judge: dict | None) -> dict:
     """Pane payload for one hermes:judge comment.
 
@@ -519,7 +530,7 @@ def _assemble_ticket(client: httpx.Client, task: dict, ui: str) -> dict:
     attempts = machine.get("attempts") or []
     judges = machine.get("judges") or []
     latest_a = attempts[-1] if attempts else {}
-    latest_j = judges[-1] if judges else {}
+    latest_j = judge_for_attempt(judges, latest_a.get("n"))
     git = latest_a.get("git") or {}
     artifacts = []
     log_lines = []
@@ -541,10 +552,7 @@ def _assemble_ticket(client: httpx.Client, task: dict, ui: str) -> dict:
             log_lines.append({"at": "", "level": "ok", "msg": line})
     history = []
     for a in attempts[:-1] if len(attempts) > 1 else []:
-        matched = next(
-            (j for j in judges if int(j.get("attempt") or 0) == int(a.get("n") or 0)),
-            {},
-        )
+        matched = judge_for_attempt(judges, a.get("n"))
         history.append(
             {
                 "head": f"attempt {a.get('n')} · {a.get('finished_at') or ''} · {matched.get('verdict') or 'unjudged'}",
