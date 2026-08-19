@@ -142,7 +142,22 @@ class WriteAuthTests(unittest.TestCase):
         self.assertEqual(r.status, 403)
         decide.assert_not_called()
 
+    def test_post_undo_without_token_is_403_and_does_not_write(self) -> None:
+        c = self.conn()
+        with mock.patch.object(hr, "apply_undo", side_effect=VIKUNJA) as undo:
+            c.request(
+                "POST",
+                "/api/undo",
+                body=json.dumps({"token": "x"}),
+                headers=self.headers(token=None),
+            )
+            r = c.getresponse()
+            r.read()
+        self.assertEqual(r.status, 403)
+        undo.assert_not_called()
+
     def test_post_good_token_reaches_decide_mock(self) -> None:
+
         c = self.conn()
         with mock.patch.object(
             hr, "apply_decision", return_value={"ok": True, "id": 74}

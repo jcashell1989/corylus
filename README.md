@@ -33,5 +33,5 @@ Example: `http://localhost:8789/?view=review&task=52`
 
 ```bash
 node --test tests/test_url_state.js tests/test_disposition.js
-~/.hermes/hermes-agent/venv/bin/python -m unittest tests/test_write_auth.py tests/test_serialize_judge.py tests/test_judge_for_attempt.py
+~/.hermes/hermes-agent/venv/bin/python -m unittest tests/test_write_auth.py tests/test_serialize_judge.py tests/test_judge_for_attempt.py tests/test_undo.py
 ```

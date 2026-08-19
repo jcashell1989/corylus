@@ -184,6 +184,27 @@ async function postJSON(url, body) {
   return data;
 }
 
+
+async function undoLast() {
+  const tokens = (state.last && state.last.tokens) || [];
+  if (!tokens.length) {
+    state.toast = "nothing to undo";
+    render();
+    return;
+  }
+  try {
+    for (const token of tokens.slice().reverse()) {
+      await postJSON("/api/undo", { token });
+    }
+    state.last = null;
+    state.toast = "reverted in Vikunja";
+    await loadBoard();
+  } catch (e) {
+    state.error = e.message;
+  }
+  render();
+}
+
 async function decide(kind, note, notBefore) {
   const ids = Object.keys(state.selected).filter(k => state.selected[k]).map(Number);
   const targets = ids.length > 1 ? ids : [current() && current().id];
@@ -199,12 +220,14 @@ async function decide(kind, note, notBefore) {
   if (step.note !== undefined) note = step.note;
   if (step.notBefore !== undefined) notBefore = step.notBefore;
   try {
+    const tokens = [];
     for (const id of targets) {
-      await postJSON("/api/tasks/" + id + "/decide", {
+      const res = await postJSON("/api/tasks/" + id + "/decide", {
         kind, note: note || "", not_before: notBefore || null
       });
+      if (res && res.undo) tokens.push(res.undo);
     }
-    state.last = { ids: targets, kind };
+    state.last = { ids: targets, kind, tokens };
     state.sessionDecided += targets.length;
     state.selected = {};
     state.viewing = null;
@@ -851,7 +874,7 @@ document.addEventListener("click", async e => {
   else if (name === "toggle-chat") { state.chatOpen = !state.chatOpen; render(); }
   else if (name === "shortcuts") { state.shortcutsOpen = !state.shortcutsOpen; render(); }
   else if (name === "send-chat") sendComment();
-  else if (name === "undo") { state.toast = "undo is session-local — re-open the ticket in Vikunja if you need a hard revert"; render(); }
+  else if (name === "undo") undoLast();
 });
 
 document.addEventListener("input", e => {
@@ -908,6 +931,7 @@ window.addEventListener("keydown", e => {
   else if (e.key === "c") { e.preventDefault(); decide("noAction"); }
   else if (e.key === "h") { e.preventDefault(); decide("human"); }
   else if (e.key === "s") { e.preventDefault(); decide("snooze"); }
+  else if (e.key === "u") { e.preventDefault(); undoLast(); }
   else if (e.key === "[") { e.preventDefault(); state.railOpen = !state.railOpen; render(); }
   else if (e.key === "]") { e.preventDefault(); state.chatOpen = !state.chatOpen; render(); }
   else if (e.key === "/") { e.preventDefault(); state.chatOpen = true; render(); const el = document.getElementById("chat-draft"); if (el) el.focus(); }

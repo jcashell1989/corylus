@@ -41,6 +41,7 @@ TZ = ZoneInfo("America/Los_Angeles")
 HOST = os.environ.get("HERMES_REVIEW_HOST", "localhost")
 PORT = int(os.environ.get("HERMES_REVIEW_PORT", "8789"))
 WRITE_TOKEN = secrets.token_urlsafe(32)
+UNDO_TOKENS: dict[str, dict] = {}
 TOKEN_HEADER = "X-Hermes-Review-Token"
 INDEX_TOKEN_PLACEHOLDER = "{{HERMES_REVIEW_TOKEN}}"
 PREFLIGHT_LOG = HERMES_HOME / "logs" / "vikunja_preflight.log"
@@ -718,6 +719,73 @@ def build_board(host_header: str | None) -> dict:
     }
 
 
+
+def stash_undo(task_id: int, kind: str, snapshot: dict) -> str:
+    token = secrets.token_urlsafe(16)
+    UNDO_TOKENS[token] = {"id": task_id, "kind": kind, "snapshot": snapshot}
+    return token
+
+
+def label_restore_ops(current: set[str], wanted: set[str]) -> tuple[list[str], list[str]]:
+    """Titles to add, titles to remove, to make current match wanted."""
+    return sorted(wanted - current), sorted(current - wanted)
+
+
+def _undo_still_valid(kind: str, task: dict, attached: set[str], control: dict | None) -> None:
+    if kind in {"approve", "noAction", "discard"}:
+        if not task.get("done"):
+            raise RuntimeError("task is no longer done — undo is stale")
+    elif kind == "human":
+        if L["human_only"] not in attached:
+            raise RuntimeError("human-only is already gone — undo is stale")
+    elif kind == "remediate":
+        if L["worker_ready"] not in attached:
+            raise RuntimeError("worker:ready is already gone — undo is stale")
+    elif kind == "snooze":
+        if not hmc.is_snoozed(control):
+            raise RuntimeError("snooze is already gone — undo is stale")
+
+
+def restore_snapshot(client: httpx.Client, task_id: int, kind: str, snapshot: dict) -> None:
+    ids = _labels(client)
+    t = client.get(f"/tasks/{task_id}")
+    t.raise_for_status()
+    task = t.json()
+    attached = {l.get("title") for l in (task.get("labels") or []) if l.get("title")}
+    machine = hmc.list_machine(client, task_id)
+    _undo_still_valid(kind, task, attached, machine.get("control"))
+    wanted = {x for x in (snapshot.get("labels") or []) if x}
+    add, remove = label_restore_ops(attached, wanted)
+    for title in add:
+        if title in ids:
+            _add_label(client, task_id, title, ids)
+    for title in remove:
+        _remove_label(client, task_id, title, ids, attached)
+    body: dict = {}
+    if "done" in snapshot:
+        body["done"] = bool(snapshot["done"])
+    if "percent_done" in snapshot:
+        body["percent_done"] = snapshot["percent_done"]
+    if body:
+        client.post(f"/tasks/{task_id}", json=body).raise_for_status()
+    if kind == "snooze" or (snapshot.get("control") or {}).get("not_before"):
+        hmc.upsert_control(
+            client, task_id, not_before=(snapshot.get("control") or {}).get("not_before")
+        )
+    _comment(client, task_id, f"{DISPOSITION_PREFIX} revert — undid last Review disposition")
+
+
+def apply_undo(token: str) -> dict:
+    record = UNDO_TOKENS.get(token)
+    if record is None:
+        raise RuntimeError("undo is no longer available")
+    load_env()
+    with _client() as client:
+        restore_snapshot(client, record["id"], record["kind"], record["snapshot"])
+    UNDO_TOKENS.pop(token, None)
+    return {"ok": True, "id": record["id"], "kind": record["kind"]}
+
+
 def apply_decision(
     task_id: int, kind: str, note: str = "", not_before: str | None = None
 ) -> dict:
@@ -728,10 +796,12 @@ def apply_decision(
         t = client.get(f"/tasks/{task_id}")
         t.raise_for_status()
         task = t.json()
+        machine = hmc.list_machine(client, task_id)
         snapshot = {
             "done": task.get("done"),
             "percent_done": task.get("percent_done"),
             "labels": [l.get("title") for l in (task.get("labels") or [])],
+            "control": machine.get("control") or {},
         }
         attached = {
             l.get("title") for l in (task.get("labels") or []) if l.get("title")
@@ -786,7 +856,8 @@ def apply_decision(
             raise RuntimeError(f"unknown decision {kind!r}")
         if text and kind != "remediate":
             _comment(client, task_id, text)
-        return {"ok": True, "snapshot": snapshot, "kind": kind}
+        token = stash_undo(task_id, kind, snapshot)
+        return {"ok": True, "snapshot": snapshot, "kind": kind, "undo": token}
 
 
 def human_action(task_id: int, action: str, note: str = "") -> dict:
@@ -955,6 +1026,13 @@ class Handler(BaseHTTPRequestHandler):
                         str(payload.get("note") or ""),
                     ),
                 )
+            except Exception as exc:
+                self._json(400, {"error": str(exc)})
+            return
+        if path == "/api/undo":
+            try:
+                token = str(payload.get("token") or "")
+                self._json(200, apply_undo(token))
             except Exception as exc:
                 self._json(400, {"error": str(exc)})
             return
