@@ -182,3 +182,22 @@ test("attempt row serializes review task", () => {
   });
   assert.equal(q, "view=review&task=74");
 });
+
+test("applyMonitorChip sets window akind lane model", () => {
+  const s = { window: "7d", akind: "all", lane: "all", model: "all" };
+  assert.equal(url.applyMonitorChip(s, "window:24h"), true);
+  assert.equal(s.window, "24h");
+  assert.equal(url.applyMonitorChip(s, "akind:judge"), true);
+  assert.equal(s.akind, "judge");
+  assert.equal(url.applyMonitorChip(s, "lane:worker"), true);
+  assert.equal(s.lane, "worker");
+  assert.equal(url.applyMonitorChip(s, "model:z-ai/glm-5.2"), true);
+  assert.equal(s.model, "z-ai/glm-5.2");
+});
+
+test("applyMonitorChip rejects unknown key and bad window", () => {
+  const s = { window: "7d", akind: "all", lane: "all", model: "all" };
+  assert.equal(url.applyMonitorChip(s, "nope:x"), false);
+  assert.equal(url.applyMonitorChip(s, "window:nope"), false);
+  assert.equal(s.window, "7d");
+});

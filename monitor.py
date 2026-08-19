@@ -66,6 +66,36 @@ def parse_ts(raw: str | None) -> datetime | None:
     return dt.astimezone(TZ)
 
 
+def first_at(*vals: Any) -> str:
+    for v in vals:
+        if v is None:
+            continue
+        text = str(v).strip()
+        if text:
+            return text
+    return ""
+
+
+def stamp_comment_times(machine: dict[str, Any], comments: list[Any]) -> dict[str, Any]:
+    """Copy Vikunja comment created onto attempts/judges missing finished_at."""
+    by_id: dict[Any, str] = {}
+    for c in comments or []:
+        if not isinstance(c, dict):
+            continue
+        cid = c.get("id")
+        if cid is None:
+            continue
+        by_id[cid] = first_at(c.get("created"), c.get("updated"))
+    for bucket in ("attempts", "judges"):
+        for row in machine.get(bucket) or []:
+            if not isinstance(row, dict):
+                continue
+            if first_at(row.get("finished_at"), row.get("at")):
+                continue
+            row["finished_at"] = by_id.get(row.get("_comment_id")) or ""
+    return machine
+
+
 def window_start(window: str, now: datetime) -> datetime | None:
     if window == "24h":
         return now - timedelta(hours=24)
@@ -281,10 +311,11 @@ def events_from_ticket(t: dict[str, Any]) -> list[dict[str, Any]]:
         )
     for h in t.get("history") or []:
         head = h.get("head") or ""
+        at = first_at(h.get("at"), h.get("finished_at"))
         events.append(
             {
-                "at": "",
-                "ts": None,
+                "at": at,
+                "ts": parse_ts(at),
                 "kind": "attempt",
                 "id": tid,
                 "ref": ident,
@@ -293,45 +324,52 @@ def events_from_ticket(t: dict[str, Any]) -> list[dict[str, Any]]:
                 "text": head or (h.get("note") or "prior attempt"),
             }
         )
-    judge = t.get("judge") or {}
-    if judge.get("verdict"):
-        events.append(
-            {
-                "at": "",
-                "ts": None,
-                "kind": "judge",
-                "id": tid,
-                "ref": ident,
-                "lane": "judge",
-                "model": judge.get("model"),
-                "verdict": judge.get("verdict"),
-                "text": f"judge {judge.get('verdict')} · {judge.get('model') or '—'}",
-            }
-        )
-    for j in t.get("judges") or []:
-        if not j.get("verdict"):
-            continue
-        at = j.get("finished_at") or j.get("at") or ""
+    judges_list = [j for j in (t.get("judges") or []) if j.get("verdict")]
+    if judges_list:
+        for j in judges_list:
+            at = first_at(j.get("finished_at"), j.get("at"), j.get("created"))
+            n = j.get("attempt") if j.get("attempt") is not None else j.get("n")
+            events.append(
+                {
+                    "at": at,
+                    "ts": parse_ts(at),
+                    "kind": "judge",
+                    "id": tid,
+                    "ref": ident,
+                    "lane": "judge",
+                    "model": j.get("model"),
+                    "verdict": j.get("verdict"),
+                    "n": n,
+                    "text": f"judge {j.get('verdict')} · {j.get('model') or '—'} · attempt {n}",
+                }
+            )
+    else:
+        judge = t.get("judge") or {}
+        if judge.get("verdict"):
+            at = first_at(
+                judge.get("finished_at"), judge.get("at"), judge.get("created")
+            )
+            events.append(
+                {
+                    "at": at,
+                    "ts": parse_ts(at),
+                    "kind": "judge",
+                    "id": tid,
+                    "ref": ident,
+                    "lane": "judge",
+                    "model": judge.get("model"),
+                    "verdict": judge.get("verdict"),
+                    "n": judge.get("attempt") or judge.get("n"),
+                    "text": f"judge {judge.get('verdict')} · {judge.get('model') or '—'}",
+                }
+            )
+    disp = t.get("disposition") or {}
+    if disp.get("kind"):
+        at = first_at(disp.get("at"), disp.get("finished_at"))
         events.append(
             {
                 "at": at,
                 "ts": parse_ts(at),
-                "kind": "judge",
-                "id": tid,
-                "ref": ident,
-                "lane": "judge",
-                "model": j.get("model"),
-                "verdict": j.get("verdict"),
-                "n": j.get("attempt"),
-                "text": f"judge {j.get('verdict')} · {j.get('model') or '—'} · attempt {j.get('attempt')}",
-            }
-        )
-    disp = t.get("disposition") or {}
-    if disp.get("kind"):
-        events.append(
-            {
-                "at": "",
-                "ts": None,
                 "kind": "disposition",
                 "id": tid,
                 "ref": ident,
@@ -385,12 +423,15 @@ def events_from_machine(
             "summary": latest.get("summary") or [],
         }
         for a in attempts[:-1]:
+            at = first_at(a.get("finished_at"), a.get("at"))
             t["history"].append(
                 {
+                    "at": at,
+                    "finished_at": at,
                     "head": (
-                        f"attempt {a.get('n')} · {a.get('finished_at') or ''} · "
+                        f"attempt {a.get('n')} · {at} · "
                         f"{' '.join(a.get('summary') or [])}"
-                    )
+                    ),
                 }
             )
     return events_from_ticket(t)
@@ -577,6 +618,11 @@ def build_monitor(
     events.extend(extra_events)
     events.extend(ticks)
     events.sort(key=lambda e: (e.get("ts") is None, e.get("ts") or now), reverse=True)
+    calls_sorted = sorted(
+        calls,
+        key=lambda c: (c.get("ts") is None, c.get("ts") or now),
+        reverse=True,
+    )
     probs = problems(
         units=units,
         claims=claims,
@@ -635,7 +681,7 @@ def build_monitor(
         "problems": probs,
         "claims": claims,
         "events": [serialize_event(e) for e in events[:400]],
-        "calls": [serialize_event(c) for c in calls[:100]],
+        "calls": [serialize_event(c) for c in calls_sorted[:100]],
         "home_events": [serialize_event(e) for e in ticket_bearing(events)[:40]],
         "metrics": metrics,
         "partial": partial,

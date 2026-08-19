@@ -181,5 +181,150 @@ class BuildTests(unittest.TestCase):
         self.assertIn("truncated read", kinds)
 
 
+class StampTests(unittest.TestCase):
+    def test_comment_created_fills_missing_finished_at(self):
+        machine = {
+            "judges": [{"verdict": "approve", "_comment_id": 9}],
+            "attempts": [{"n": 1, "_comment_id": 8}],
+        }
+        comments = [
+            {"id": 8, "created": "2026-08-19T09:00:00-07:00"},
+            {"id": 9, "created": "2026-08-19T09:10:00-07:00"},
+        ]
+        mon.stamp_comment_times(machine, comments)
+        self.assertEqual(
+            machine["judges"][0]["finished_at"], "2026-08-19T09:10:00-07:00"
+        )
+        self.assertEqual(
+            machine["attempts"][0]["finished_at"], "2026-08-19T09:00:00-07:00"
+        )
+
+    def test_does_not_overwrite_existing_finished_at(self):
+        machine = {
+            "judges": [{"verdict": "approve", "_comment_id": 9, "finished_at": "kept"}]
+        }
+        mon.stamp_comment_times(machine, [{"id": 9, "created": "other"}])
+        self.assertEqual(machine["judges"][0]["finished_at"], "kept")
+
+
+class EventStampTests(unittest.TestCase):
+    def test_assembled_judge_finished_at_counts_in_24h(self):
+        ticket = {
+            "id": 3,
+            "identifier": "#3",
+            "labels": ["needs-review"],
+            "attempt": {
+                "n": 1,
+                "finished_at": "2026-08-19T01:54:26-07:00",
+                "summary": ["x"],
+            },
+            "judge": {
+                "verdict": "approve",
+                "model": "z-ai/glm-5.2",
+                "finished_at": "2026-08-19T02:00:00-07:00",
+            },
+            "judges": [],
+            "history": [],
+            "disposition": None,
+            "chat": [],
+        }
+        events = mon.events_from_ticket(ticket)
+        judges = [e for e in events if e["kind"] == "judge"]
+        self.assertEqual(len(judges), 1)
+        self.assertEqual(judges[0]["at"], "2026-08-19T02:00:00-07:00")
+        self.assertTrue(mon.in_window(judges[0]["ts"], "24h", NOW))
+        m = mon.metrics_for_window(
+            events=events,
+            calls=[],
+            ticks=[],
+            window="24h",
+            now=NOW,
+            prices={},
+            claims=[],
+            depths={},
+            problems_n=0,
+        )
+        self.assertEqual(m["throughput_judges"], 1)
+        self.assertEqual(m["judge_outcomes"], {"approve": 1})
+
+    def test_judges_list_does_not_duplicate_pane_judge(self):
+        ticket = {
+            "id": 3,
+            "labels": ["needs-review"],
+            "judge": {
+                "verdict": "approve",
+                "finished_at": "2026-08-19T02:00:00-07:00",
+            },
+            "judges": [
+                {
+                    "verdict": "approve",
+                    "attempt": 1,
+                    "finished_at": "2026-08-19T02:00:00-07:00",
+                }
+            ],
+        }
+        events = mon.events_from_ticket(ticket)
+        self.assertEqual(sum(1 for e in events if e["kind"] == "judge"), 1)
+
+    def test_history_and_disposition_use_at(self):
+        ticket = {
+            "id": 72,
+            "labels": ["needs-review"],
+            "attempt": {"n": 2, "finished_at": "2026-08-16T00:10:31-07:00"},
+            "history": [{"at": "2026-08-16T00:10:30-07:00", "head": "attempt 1"}],
+            "disposition": {
+                "kind": "remediate",
+                "at": "2026-08-17T12:00:00-07:00",
+            },
+        }
+        events = mon.events_from_ticket(ticket)
+        hist = [
+            e
+            for e in events
+            if e["kind"] == "attempt" and "attempt 1" in (e.get("text") or "")
+        ]
+        disp = [e for e in events if e["kind"] == "disposition"]
+        self.assertIsNotNone(hist[0]["ts"])
+        self.assertIsNotNone(disp[0]["ts"])
+
+
+class CallFeedTests(unittest.TestCase):
+    def test_calls_feed_is_newest_first(self):
+        old = {
+            "at": "2026-07-30 17:55:38",
+            "ts": mon.parse_ts("2026-07-30 17:55:38"),
+            "kind": "call",
+            "model": "old",
+        }
+        new = {
+            "at": "2026-08-19 10:00:00",
+            "ts": mon.parse_ts("2026-08-19 10:00:00"),
+            "kind": "call",
+            "model": "new",
+        }
+        built = mon.build_monitor(
+            assembled=[],
+            extra_events=[],
+            ticks=[],
+            calls=[old, new],
+            prices={},
+            claims=[],
+            depths={},
+            units={},
+            worker_live=False,
+            judge_live=False,
+            preflight_missing=False,
+            preflight_age_s=None,
+            worker_used=0,
+            worker_cap=3,
+            judge_used=0,
+            judge_cap=6,
+            truncated=[],
+            now=NOW,
+        )
+        self.assertEqual(built["calls"][0]["model"], "new")
+        self.assertEqual(built["calls"][1]["model"], "old")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -465,7 +465,7 @@ def _parse_disposition(comments: list[dict]) -> dict | None:
         rest = text[len(DISPOSITION_PREFIX) :].strip()
         kind = rest.split(" ", 1)[0].rstrip(":")
         note = rest[len(kind) :].strip(" :—-")
-        return {"kind": kind, "note": note}
+        return {"kind": kind, "note": note, "at": c.get("at") or ""}
     return None
 
 
@@ -520,6 +520,10 @@ def serialize_judge(judge: dict | None) -> dict:
         "confidence": float(judge.get("confidence") or 0),
         "notes": judge.get("notes") or [],
         "checks": judge.get("checks") or [],
+        "finished_at": judge.get("finished_at")
+        or judge.get("at")
+        or judge.get("created")
+        or "",
     }
 
 
@@ -530,7 +534,9 @@ def _assemble_ticket(client: httpx.Client, task: dict, ui: str) -> dict:
     machine = hmc.list_machine(client, tid)
     comments_r = client.get(f"/tasks/{tid}/comments")
     comments_r.raise_for_status()
-    chat = _human_comments(comments_r.json() or [])
+    comments = comments_r.json() or []
+    monitor.stamp_comment_times(machine, comments)
+    chat = _human_comments(comments)
     attempts = machine.get("attempts") or []
     judges = machine.get("judges") or []
     latest_a = attempts[-1] if attempts else {}
@@ -559,6 +565,7 @@ def _assemble_ticket(client: httpx.Client, task: dict, ui: str) -> dict:
         matched = judge_for_attempt(judges, a.get("n"))
         history.append(
             {
+                "at": a.get("finished_at") or "",
                 "head": f"attempt {a.get('n')} · {a.get('finished_at') or ''} · {matched.get('verdict') or 'unjudged'}",
                 "note": " ".join(a.get("summary") or []) or "(no summary)",
                 "thenText": " ".join(a.get("summary") or []),
@@ -615,6 +622,17 @@ def _assemble_ticket(client: httpx.Client, task: dict, ui: str) -> dict:
             "git": git,
         },
         "judge": serialize_judge(latest_j),
+        "judges": [
+            {
+                "verdict": j.get("verdict"),
+                "model": j.get("model"),
+                "attempt": j.get("attempt"),
+                "n": j.get("attempt"),
+                "finished_at": j.get("finished_at") or j.get("at") or "",
+            }
+            for j in judges
+            if j.get("verdict")
+        ],
         "history": history,
         "artifacts": artifacts,
         "log": log_lines,
@@ -627,7 +645,6 @@ def _assemble_ticket(client: httpx.Client, task: dict, ui: str) -> dict:
         "disposition": disp,
         "age": task.get("updated") or task.get("created") or "",
     }
-
 
 
 def _unit_active(name: str) -> bool | None:
@@ -701,7 +718,9 @@ def build_board(host_header: str | None) -> dict:
                 queue.append(_assemble_ticket(client, task, ui))
         claim_sources = []
         for task in tasks:
-            titles = [l.get("title") for l in (task.get("labels") or []) if l.get("title")]
+            titles = [
+                l.get("title") for l in (task.get("labels") or []) if l.get("title")
+            ]
             if L["in_progress"] in titles:
                 claim_sources.append(
                     {
@@ -723,9 +742,11 @@ def build_board(host_header: str | None) -> dict:
             if task.get("id") in seen:
                 continue
             try:
-                extra_events.extend(
-                    monitor.events_from_machine(task, hmc.list_machine(client, task["id"]))
-                )
+                comments_r = client.get(f"/tasks/{task['id']}/comments")
+                comments_r.raise_for_status()
+                machine = hmc.list_machine(client, task["id"])
+                monitor.stamp_comment_times(machine, comments_r.json() or [])
+                extra_events.extend(monitor.events_from_machine(task, machine))
             except Exception:
                 continue
         worker_live = vpre.worker_running()
@@ -746,9 +767,13 @@ def build_board(host_header: str | None) -> dict:
             monitor.read_text_capped(log_dir / "agent.log.1")
             + monitor.read_text_capped(log_dir / "agent.log")
         )
-        prices = monitor.load_prices(HERMES_HOME / "cache" / "openrouter_model_metadata.json")
+        prices = monitor.load_prices(
+            HERMES_HOME / "cache" / "openrouter_model_metadata.json"
+        )
         worker_used = _dispatch_today(HERMES_HOME / "state" / "vikunja_dispatch.json")
-        judge_used = _dispatch_today(HERMES_HOME / "state" / "vikunja_judge_dispatch.json")
+        judge_used = _dispatch_today(
+            HERMES_HOME / "state" / "vikunja_judge_dispatch.json"
+        )
         depths = {
             "worker": sum(
                 1
@@ -790,9 +815,7 @@ def build_board(host_header: str | None) -> dict:
     for w in monitor.WINDOWS:
         mon["metrics"][w]["queue_depth_review"] = len(pending)
     verdicts = [
-        t["judge"]["verdict"]
-        for t in tickets
-        if (t.get("judge") or {}).get("verdict")
+        t["judge"]["verdict"] for t in tickets if (t.get("judge") or {}).get("verdict")
     ]
     n_approve = sum(1 for v in verdicts if v == "approve")
     n_rem = sum(1 for v in verdicts if v == "remediate")
@@ -840,19 +863,22 @@ def build_board(host_header: str | None) -> dict:
     }
 
 
-
 def stash_undo(task_id: int, kind: str, snapshot: dict) -> str:
     token = secrets.token_urlsafe(16)
     UNDO_TOKENS[token] = {"id": task_id, "kind": kind, "snapshot": snapshot}
     return token
 
 
-def label_restore_ops(current: set[str], wanted: set[str]) -> tuple[list[str], list[str]]:
+def label_restore_ops(
+    current: set[str], wanted: set[str]
+) -> tuple[list[str], list[str]]:
     """Titles to add, titles to remove, to make current match wanted."""
     return sorted(wanted - current), sorted(current - wanted)
 
 
-def _undo_still_valid(kind: str, task: dict, attached: set[str], control: dict | None) -> None:
+def _undo_still_valid(
+    kind: str, task: dict, attached: set[str], control: dict | None
+) -> None:
     if kind in {"approve", "noAction", "discard"}:
         if not task.get("done"):
             raise RuntimeError("task is no longer done — undo is stale")
@@ -867,7 +893,9 @@ def _undo_still_valid(kind: str, task: dict, attached: set[str], control: dict |
             raise RuntimeError("snooze is already gone — undo is stale")
 
 
-def restore_snapshot(client: httpx.Client, task_id: int, kind: str, snapshot: dict) -> None:
+def restore_snapshot(
+    client: httpx.Client, task_id: int, kind: str, snapshot: dict
+) -> None:
     ids = _labels(client)
     t = client.get(f"/tasks/{task_id}")
     t.raise_for_status()
@@ -891,9 +919,13 @@ def restore_snapshot(client: httpx.Client, task_id: int, kind: str, snapshot: di
         client.post(f"/tasks/{task_id}", json=body).raise_for_status()
     if kind == "snooze" or (snapshot.get("control") or {}).get("not_before"):
         hmc.upsert_control(
-            client, task_id, not_before=(snapshot.get("control") or {}).get("not_before")
+            client,
+            task_id,
+            not_before=(snapshot.get("control") or {}).get("not_before"),
         )
-    _comment(client, task_id, f"{DISPOSITION_PREFIX} revert — undid last Review disposition")
+    _comment(
+        client, task_id, f"{DISPOSITION_PREFIX} revert — undid last Review disposition"
+    )
 
 
 def apply_undo(token: str) -> dict:

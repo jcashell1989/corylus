@@ -138,6 +138,34 @@
     };
   }
 
+  function applyMonitorChip(state, spec) {
+    const raw = String(spec || "");
+    const cut = raw.indexOf(":");
+    if (cut <= 0 || !state) return false;
+    const key = raw.slice(0, cut);
+    const val = raw.slice(cut + 1);
+    if (key === "window") {
+      if (!WINDOWS.includes(val)) return false;
+      state.window = val;
+      return true;
+    }
+    if (key === "akind") {
+      if (!AKINDS.includes(val)) return false;
+      state.akind = val;
+      return true;
+    }
+    if (key === "lane") {
+      if (!LANES.includes(val)) return false;
+      state.lane = val;
+      return true;
+    }
+    if (key === "model") {
+      state.model = val || "all";
+      return true;
+    }
+    return false;
+  }
+
   return {
     VIEWS: VIEWS,
     FILTERS: FILTERS,
@@ -149,6 +177,7 @@
     parse: parse,
     serialize: serialize,
     apply: apply,
-    snapshot: snapshot
+    snapshot: snapshot,
+    applyMonitorChip: applyMonitorChip
   };
 });

@@ -979,6 +979,12 @@ function startDrag(e, key, dir, min, max) {
 document.addEventListener("click", async e => {
   const a = e.target.closest("[data-view]");
   if (a) { e.preventDefault(); showView(a.getAttribute("data-view")); return; }
+  const mon = e.target.closest("[data-mon]");
+  if (mon) {
+    e.preventDefault();
+    if (HermesReviewUrl.applyMonitorChip(state, mon.getAttribute("data-mon"))) render();
+    return;
+  }
   const open = e.target.closest("[data-open]");
   if (open) {
     e.preventDefault();
