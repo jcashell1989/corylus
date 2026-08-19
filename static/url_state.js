@@ -8,6 +8,9 @@
 })(typeof globalThis !== "undefined" ? globalThis : this, function () {
   const VIEWS = ["home", "review", "queue", "human", "timeline", "stats"];
   const FILTERS = ["all", "low", "high", "approve", "remediate", "split", "human", "thin"];
+  const WINDOWS = ["24h", "7d", "all"];
+  const AKINDS = ["all", "attempt", "judge", "preflight", "disposition", "reaper", "call"];
+  const LANES = ["all", "worker", "worker-escalate", "judge", "judge-escalate"];
   const SECTIONS = ["description", "attempt", "artifacts", "log", "history", "meta"];
   const DEFAULT_OPEN = {
     description: true,
@@ -40,6 +43,18 @@
     const filterRaw = q.get("filter");
     const filter = FILTERS.includes(filterRaw) ? filterRaw : "all";
 
+    const windowRaw = q.get("window");
+    const window = WINDOWS.includes(windowRaw) ? windowRaw : "7d";
+
+    const akindRaw = q.get("akind");
+    const akind = AKINDS.includes(akindRaw) ? akindRaw : "all";
+
+    const laneRaw = q.get("lane");
+    const lane = LANES.includes(laneRaw) ? laneRaw : "all";
+
+    const modelRaw = (q.get("model") || "").trim();
+    const model = modelRaw && modelRaw !== "all" ? modelRaw : "all";
+
     const open = Object.assign({}, DEFAULT_OPEN);
     if (q.has("open")) {
       const keys = (q.get("open") || "").split(",").filter(Boolean);
@@ -56,7 +71,11 @@
       human = Number.isInteger(n) && n > 0 ? n : null;
     }
 
-    return { view: view, task: task, cursor: cursor, filter: filter, open: open, human: human };
+    return {
+      view: view, task: task, cursor: cursor, filter: filter,
+      window: window, akind: akind, lane: lane, model: model,
+      open: open, human: human
+    };
   }
 
   function serialize(s) {
@@ -65,6 +84,10 @@
     const task = s && s.task;
     const cursor = s && s.cursor;
     const filter = s && s.filter;
+    const window = s && s.window;
+    const akind = s && s.akind;
+    const lane = s && s.lane;
+    const model = s && s.model;
     const open = (s && s.open) || DEFAULT_OPEN;
     const human = s && s.human;
 
@@ -72,6 +95,10 @@
     if (task) q.set("task", String(task));
     if (cursor) q.set("cursor", String(cursor));
     if (filter && filter !== "all") q.set("filter", filter);
+    if (window && window !== "7d") q.set("window", window);
+    if (akind && akind !== "all") q.set("akind", akind);
+    if (lane && lane !== "all") q.set("lane", lane);
+    if (model && model !== "all") q.set("model", model);
 
     const defaulted = SECTIONS.every(function (k) {
       return Boolean(open[k]) === Boolean(DEFAULT_OPEN[k]);
@@ -88,6 +115,10 @@
     state.viewing = parsed.task;
     state.cursor = parsed.cursor;
     state.filter = parsed.filter;
+    state.window = parsed.window;
+    state.akind = parsed.akind;
+    state.lane = parsed.lane;
+    state.model = parsed.model;
     state.open = Object.assign({}, DEFAULT_OPEN, parsed.open);
     state.humanOpen = parsed.human;
   }
@@ -98,6 +129,10 @@
       task: state.viewing,
       cursor: state.cursor,
       filter: state.filter,
+      window: state.window || "7d",
+      akind: state.akind || "all",
+      lane: state.lane || "all",
+      model: state.model || "all",
       open: state.open,
       human: state.humanOpen
     };
@@ -106,6 +141,9 @@
   return {
     VIEWS: VIEWS,
     FILTERS: FILTERS,
+    WINDOWS: WINDOWS,
+    AKINDS: AKINDS,
+    LANES: LANES,
     SECTIONS: SECTIONS,
     DEFAULT_OPEN: DEFAULT_OPEN,
     parse: parse,

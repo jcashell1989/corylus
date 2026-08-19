@@ -16,6 +16,7 @@ import json
 import os
 import re
 import secrets
+import subprocess
 import sys
 import time
 from datetime import datetime, timedelta
@@ -31,6 +32,8 @@ SCRIPTS = HERMES_HOME / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 import hermes_machine_comments as hmc  # noqa: E402
 from vikunja_config import load as load_vikunja_config  # noqa: E402
+import vikunja_preflight as vpre  # noqa: E402
+import monitor  # noqa: E402
 
 CFG = load_vikunja_config()
 L = CFG.labels
@@ -626,6 +629,51 @@ def _assemble_ticket(client: httpx.Client, task: dict, ui: str) -> dict:
     }
 
 
+
+def _unit_active(name: str) -> bool | None:
+    env = os.environ.copy()
+    env.setdefault("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
+    try:
+        r = subprocess.run(
+            ["systemctl", "--user", "is-active", name],
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=3,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    status = (r.stdout or "").strip()
+    if status == "active":
+        return True
+    if status in {"inactive", "failed", "deactivating", "activating", "dead"}:
+        return False
+    return None
+
+
+def _recently_done(client: httpx.Client) -> tuple[list[dict], bool]:
+    try:
+        r = client.get(
+            "/tasks",
+            params={
+                "filter": "done = true",
+                "per_page": 15,
+                "sort_by": "updated",
+                "order_by": "desc",
+            },
+        )
+        r.raise_for_status()
+    except Exception:
+        return [], False
+    tasks = r.json() or []
+    return tasks, len(tasks) >= 15
+
+
+def _dispatch_today(path: Path) -> int:
+    return monitor.dispatch_count(path, _now().strftime("%Y-%m-%d"))
+
+
 def build_board(host_header: str | None) -> dict:
     ui = vikunja_ui(host_header)
     load_env()
@@ -651,24 +699,96 @@ def build_board(host_header: str | None) -> dict:
                 L["judge_escalate"],
             }:
                 queue.append(_assemble_ticket(client, task, ui))
-        # Metrics stay on open judged/needs-review only (honest empty if none).
+        claim_sources = []
+        for task in tasks:
+            titles = [l.get("title") for l in (task.get("labels") or []) if l.get("title")]
+            if L["in_progress"] in titles:
+                claim_sources.append(
+                    {
+                        "id": task["id"],
+                        "identifier": f"#{task['id']}",
+                        "title": task.get("title") or f"#{task['id']}",
+                        "labels": titles,
+                    }
+                )
+        truncated = []
+        if len(tasks) >= 100:
+            truncated.append("open task list hit per_page 100")
+        extra_events = []
+        done_tasks, done_capped = _recently_done(client)
+        if done_capped:
+            truncated.append("recently-done machine comments capped at 15")
+        seen = {t["id"] for t in tickets + queue + human_only}
+        for task in done_tasks:
+            if task.get("id") in seen:
+                continue
+            try:
+                extra_events.extend(
+                    monitor.events_from_machine(task, hmc.list_machine(client, task["id"]))
+                )
+            except Exception:
+                continue
+        worker_live = vpre.worker_running()
+        judge_live = vpre.judge_running()
+        claims = monitor.claim_rows(
+            claim_sources, L["in_progress"], worker_live, judge_live
+        )
+        units = {name: _unit_active(name) for name in monitor.UNITS}
+        preflight_path = HERMES_HOME / "logs" / "vikunja_preflight.log"
+        preflight_text = monitor.read_text_capped(preflight_path)
+        ticks = monitor.parse_preflight_log(preflight_text)
+        preflight_missing = not preflight_path.is_file()
+        preflight_age_s = None
+        if ticks and ticks[-1].get("ts"):
+            preflight_age_s = (_now() - ticks[-1]["ts"]).total_seconds()
+        log_dir = HERMES_HOME / "logs"
+        calls = monitor.parse_api_calls(
+            monitor.read_text_capped(log_dir / "agent.log.1")
+            + monitor.read_text_capped(log_dir / "agent.log")
+        )
+        prices = monitor.load_prices(HERMES_HOME / "cache" / "openrouter_model_metadata.json")
+        worker_used = _dispatch_today(HERMES_HOME / "state" / "vikunja_dispatch.json")
+        judge_used = _dispatch_today(HERMES_HOME / "state" / "vikunja_judge_dispatch.json")
+        depths = {
+            "worker": sum(
+                1
+                for t in queue
+                if t.get("classification") in {"worker-ready", "worker:escalate"}
+            ),
+            "judge": sum(
+                1
+                for t in queue
+                if t.get("classification") in {"judge-ready", "judge:escalate"}
+            ),
+            "review": 0,
+        }
+        assembled = tickets + queue + human_only
+        mon = monitor.build_monitor(
+            assembled=assembled,
+            extra_events=extra_events,
+            ticks=ticks,
+            calls=calls,
+            prices=prices,
+            claims=claims,
+            depths=depths,
+            units=units,
+            worker_live=worker_live,
+            judge_live=judge_live,
+            preflight_missing=preflight_missing,
+            preflight_age_s=preflight_age_s,
+            worker_used=worker_used,
+            worker_cap=int(CFG.caps.get("worker_per_day") or 0),
+            judge_used=judge_used,
+            judge_cap=int(CFG.caps.get("judge_per_day") or 0),
+            truncated=truncated,
+            now=_now(),
+        )
     tickets.sort(key=lambda t: (-t["priority"], t["id"]))
     human_only.sort(key=lambda t: (-t["priority"], t["id"]))
     queue.sort(key=lambda t: (-t["priority"], t["id"]))
     pending = [t for t in tickets if t["pending"]]
-    activity = []
-    for t in tickets:
-        for msg in t["chat"][-3:]:
-            activity.append(
-                {
-                    "at": (msg.get("at") or "")[11:16],
-                    "kind": "me" if msg["who"] == "me" else "judged",
-                    "ref": t["identifier"],
-                    "id": t["id"],
-                    "text": (msg.get("text") or "")[:180],
-                }
-            )
-    activity = activity[-40:]
+    for w in monitor.WINDOWS:
+        mon["metrics"][w]["queue_depth_review"] = len(pending)
     verdicts = [
         t["judge"]["verdict"]
         for t in tickets
@@ -704,7 +824,7 @@ def build_board(host_header: str | None) -> dict:
         "queue": queue,
         "queue_ids": [t["id"] for t in queue],
         "human_only": human_only,
-        "activity": list(reversed(activity)),
+        "activity": mon.get("home_events") or [],
         "metrics": {
             "judge_approve": n_approve,
             "judge_remediate": n_rem,
@@ -716,6 +836,7 @@ def build_board(host_header: str | None) -> dict:
             "agreement": f"{agree}/{compared}" if compared else "—",
             "first_attempt": "—",
         },
+        "monitor": mon,
     }
 
 

@@ -60,7 +60,13 @@ const state = {
   gPending: false,
   humanOpen: null,
   humanDraft: "",
-  error: ""
+  error: "",
+  window: "7d",
+  akind: "all",
+  lane: "all",
+  model: "all",
+  problemsOpen: false,
+  boardFetchedAt: 0
 };
 
 function esc(s) {
@@ -99,6 +105,7 @@ async function loadBoard() {
   const data = await r.json();
   if (!r.ok) throw new Error(data.error || "board failed");
   state.board = data;
+  state.boardFetchedAt = Date.now();
   state.error = "";
 }
 
@@ -326,7 +333,7 @@ function renderHome() {
       <div style="font-size:15.5px;margin-top:4px">${esc(t.title)}</div>
     </div>`
   ).join("") || `<div class="mono" style="font-size:11px;color:${MUTED};padding:12px 0;border-top:1px solid rgba(43,36,27,0.10)">none</div>`;
-  const acts = (b.activity || []).slice(0, 4).map(a =>
+  const acts = ((b.monitor && b.monitor.home_events) || b.activity || []).slice(0, 4).map(a =>
     `<div style="display:flex;gap:12px;padding:10px 0;border-top:1px solid rgba(43,36,27,0.10)">
       <span class="mono" style="width:82px;flex:none;font-size:11px;color:${MUTED}">${esc(a.at)}</span>
       <span style="font-size:14px">${esc(a.text)}</span>
@@ -362,7 +369,7 @@ function renderHome() {
           <a href="#" data-view="queue" class="mono" style="display:inline-block;margin-top:14px;font-size:11px;color:${GOLD}">the whole queue →</a>
         </div>
         <div>
-          <div class="mono" style="font-size:11px;letter-spacing:0.08em;color:${MUTED};display:flex;gap:12px;align-items:baseline">since you last looked<span style="flex:1;height:1px;background:rgba(43,36,27,0.08)"></span></div>
+          <div class="mono" style="font-size:11px;letter-spacing:0.08em;color:${MUTED};display:flex;gap:12px;align-items:baseline">recent events<span style="flex:1;height:1px;background:rgba(43,36,27,0.08)"></span></div>
           ${acts || `<div class="mono" style="font-size:11px;color:${MUTED};padding:12px 0;border-top:1px solid rgba(43,36,27,0.10)">quiet</div>`}
           <a href="#" data-view="timeline" class="mono" style="display:inline-block;margin-top:14px;font-size:11px;color:${GOLD}">all activity →</a>
         </div>
@@ -660,20 +667,6 @@ function renderHuman() {
   </div>`;
 }
 
-function renderTimeline() {
-  const rows = (state.board.activity || []).map(a =>
-    `<div style="display:flex;gap:16px;padding:12px 0;border-top:1px solid rgba(43,36,27,0.10);max-width:900px">
-      <span class="mono" style="width:112px;font-size:12px;color:${MUTED}">${esc(a.at)}</span>
-      <span class="mono" style="width:88px;font-size:12px;color:${a.kind === "judged" ? GREEN : GOLD}">${esc(a.kind)}</span>
-      <span style="flex:1;font-size:15px">${esc(a.text)}</span>
-      <a href="#" data-open="${a.id}" class="mono" style="font-size:11px">${esc(a.ref)} ↗</a>
-    </div>`
-  ).join("") || `<div class="mono" style="color:${MUTED}">no activity yet</div>`;
-  return `<div style="flex:1;overflow-y:auto;padding:40px 46px 60px;animation:fadeUp 500ms cubic-bezier(0.22,1,0.36,1) both">
-    <h1 class="play" style="font-size:40px;margin:0 0 28px">Agent activity</h1>${rows}
-  </div>`;
-}
-
 function bar(label, value, n, d, color) {
   const w = d ? Math.round((n / d) * 100) : 0;
   return `<div style="margin-bottom:18px">
@@ -682,23 +675,202 @@ function bar(label, value, n, d, color) {
   </div>`;
 }
 
-function renderStats() {
-  const m = state.board.metrics || {};
-  const d = m.open_judged || 1;
-  return `<div style="flex:1;overflow-y:auto;padding:40px 46px 60px;animation:fadeUp 500ms cubic-bezier(0.22,1,0.36,1) both;max-width:720px">
-    <h1 class="play" style="font-size:40px;margin:0 0 28px">Metrics</h1>
-    ${bar("approved (judge)", m.judge_approve, m.judge_approve, d, GREEN)}
-    ${bar("sent back (judge remediate)", m.judge_remediate, m.judge_remediate, d, CLAY)}
-    ${bar("thin / insufficient evidence", m.judge_thin, m.judge_thin, d, MUTED)}
-    ${bar("escalate to human (judge)", m.judge_human, m.judge_human, d, SLATE)}
-    ${bar("awaiting your verdict", m.pending, m.pending, d, GREEN)}
-    <div style="border-top:1px solid rgba(43,36,27,0.12);padding-top:24px;margin-top:12px">
-      <div style="display:flex;gap:12px;margin-bottom:16px"><span class="mono" style="width:92px;color:${GOLD}">${esc(m.agreement)}</span><span style="font-weight:700;width:230px">agreement with the judge</span><span style="color:${MUTED}">Only counted when you have written a Hermes Review disposition. Empty until you start using the action bar.</span></div>
-      <div style="display:flex;gap:12px"><span class="mono" style="width:92px;color:${MUTED}">—</span><span style="font-weight:700;width:230px">classifier error rate</span><span style="color:${MUTED}">No classifier lives in Vikunja yet — not invented.</span></div>
-    </div>
+function monitor() {
+  return (state.board && state.board.monitor) || {
+    health: {}, problems: [], claims: [], events: [], home_events: [],
+    metrics: {}, partial: [], models: []
+  };
+}
+function monitorMetrics() {
+  const m = monitor().metrics || {};
+  return m[state.window || "7d"] || m["7d"] || m.all || {};
+}
+function fmtAge(s) {
+  if (s == null || s === "") return "—";
+  const n = Number(s);
+  if (!Number.isFinite(n)) return "—";
+  if (n < 60) return Math.round(n) + "s";
+  if (n < 3600) return Math.round(n / 60) + "m";
+  return (n / 3600).toFixed(1) + "h";
+}
+function fmtUsd(v) {
+  if (v == null) return "—";
+  return "$" + Number(v).toFixed(2);
+}
+function fmtSec(v) {
+  if (v == null) return "—";
+  const n = Number(v);
+  if (!Number.isFinite(n)) return "—";
+  if (n < 60) return n.toFixed(1) + "s";
+  return (n / 60).toFixed(1) + "m";
+}
+function eventKindColor(kind) {
+  if (kind === "judge" || kind === "attempt") return GREEN;
+  if (kind === "reaper" || kind === "stranded") return CLAY;
+  if (kind === "disposition") return GOLD;
+  return MUTED;
+}
+function inWindow(at) {
+  const w = state.window || "7d";
+  if (w === "all") return true;
+  if (!at) return false;
+  const ts = Date.parse(String(at).replace(" ", "T"));
+  if (!Number.isFinite(ts)) return false;
+  const ms = w === "24h" ? 86400000 : 7 * 86400000;
+  return Date.now() - ts <= ms;
+}
+function filterEvents(list) {
+  return (list || []).filter(e => {
+    if (!inWindow(e.at)) return false;
+    if (state.akind && state.akind !== "all" && e.kind !== state.akind) return false;
+    if (state.lane && state.lane !== "all" && e.lane && e.lane !== "all" && e.lane !== state.lane) return false;
+    if (state.model && state.model !== "all" && e.model && e.model !== state.model) return false;
+    if (state.model && state.model !== "all" && !e.model) return false;
+    return true;
+  });
+}
+function healthStripHtml() {
+  const h = monitor().health || {};
+  const units = (h.units || []).join(" · ");
+  const age = fmtAge(h.preflight_age_s);
+  return `<div class="mono" style="font-size:11.5px;color:${MUTED};margin:0 0 18px;max-width:960px">
+    ${esc(units)}${units ? " · " : ""}worker ${esc(h.worker || "—")} · judge ${esc(h.judge || "—")}
+    · worker cap ${esc(h.worker_cap || "—")} · judge cap ${esc(h.judge_cap || "—")}
+    · preflight ${esc(age)} ago · read ${esc((h.generated_at || "").replace("T", " "))}
+  </div>`;
+}
+function problemsHtml() {
+  const probs = monitor().problems || [];
+  if (!probs.length) return "";
+  const rows = state.problemsOpen ? probs.map(p => {
+    const inner = `<span class="mono" style="color:${CLAY};width:140px;flex:none">${esc(p.kind)}</span><span>${esc(p.text)}</span>`;
+    if (p.id) return `<a href="#" data-open="${p.id}" style="display:flex;gap:12px;padding:8px 0;border-top:1px solid rgba(43,36,27,0.10);color:inherit;text-decoration:none">${inner}</a>`;
+    return `<div style="display:flex;gap:12px;padding:8px 0;border-top:1px solid rgba(43,36,27,0.10)">${inner}</div>`;
+  }).join("") : "";
+  return `<div style="max-width:900px;margin-bottom:22px;border:1px solid rgba(139,50,50,0.28);padding:10px 14px">
+    <div data-act="problems" style="display:flex;cursor:pointer;font-size:13px">
+      <span>${probs.length} problem${probs.length === 1 ? "" : "s"}</span>
+      <span class="mono" style="margin-left:auto;color:${MUTED}">${state.problemsOpen ? "−" : "+"}</span>
+    </div>${rows}
+  </div>`;
+}
+function filterBarHtml() {
+  const chip = (key, val, label) => {
+    const on = state[key] === val;
+    return `<a href="#" data-mon="${key}:${val}" class="mono" style="font-size:11px;margin-right:10px;color:${on ? INK : MUTED};border-bottom:1px solid ${on ? GREEN : "transparent"}">${esc(label)}</a>`;
+  };
+  const models = ["all"].concat(monitor().models || []);
+  return `<div style="margin:0 0 22px;max-width:960px">
+    <div style="margin-bottom:8px">${chip("window","24h","24h")}${chip("window","7d","7d")}${chip("window","all","all")}</div>
+    <div style="margin-bottom:8px">${["all","attempt","judge","preflight","disposition","reaper","call"].map(k => chip("akind", k, k)).join("")}</div>
+    <div style="margin-bottom:8px">${["all","worker","worker-escalate","judge","judge-escalate"].map(k => chip("lane", k, k)).join("")}</div>
+    <div>${models.map(m => chip("model", m, m)).join("")}</div>
+  </div>`;
+}
+function claimsHtml() {
+  const rows = monitor().claims || [];
+  if (!rows.length) return `<div class="mono" style="color:${MUTED};margin-bottom:18px">no in-progress claims</div>`;
+  return `<div style="max-width:900px;margin-bottom:24px">${rows.map(c =>
+    `<a href="#" data-open="${c.id}" style="display:flex;gap:12px;padding:8px 0;border-top:1px solid rgba(43,36,27,0.10);text-decoration:none;color:inherit">
+      <span class="mono" style="width:88px;color:${c.stranded ? CLAY : GOLD}">${esc(c.status)}</span>
+      <span class="mono" style="width:56px">${esc(c.ref)}</span>
+      <span style="flex:1">${esc(c.title)}</span>
+    </a>`
+  ).join("")}</div>`;
+}
+
+async function showView(id) {
+  state.view = id;
+  if ((id === "timeline" || id === "stats") && Date.now() - (state.boardFetchedAt || 0) > 30000) {
+    try { await loadBoard(); } catch (e) { state.error = e.message; }
+  }
+  render();
+}
+
+function renderTimeline() {
+  const src = state.akind === "call" ? (monitor().calls || []) : (monitor().events || []);
+  const rows = filterEvents(src).map(a => {
+    const link = a.id
+      ? `<a href="#" data-open="${a.id}" class="mono" style="font-size:11px">${esc(a.ref || ("#" + a.id))} ↗</a>`
+      : `<span class="mono" style="font-size:11px;color:${MUTED}">—</span>`;
+    const at = (a.at || "").replace("T", " ").slice(0, 16);
+    return `<div style="display:flex;gap:16px;padding:12px 0;border-top:1px solid rgba(43,36,27,0.10);max-width:960px">
+      <span class="mono" style="width:112px;font-size:12px;color:${MUTED}">${esc(at || "—")}</span>
+      <span class="mono" style="width:88px;font-size:12px;color:${eventKindColor(a.kind)}">${esc(a.kind)}</span>
+      <span style="flex:1;font-size:15px">${esc(a.text)}</span>
+      ${link}
+    </div>`;
+  }).join("") || `<div class="mono" style="color:${MUTED}">no events in this window</div>`;
+  const partial = (monitor().partial || []).map(p =>
+    `<div class="mono" style="font-size:11px;color:${MUTED};margin-top:6px">${esc(p)}</div>`
+  ).join("");
+  return `<div style="flex:1;overflow-y:auto;padding:40px 46px 60px;animation:fadeUp 500ms cubic-bezier(0.22,1,0.36,1) both">
+    <h1 class="play" style="font-size:40px;margin:0 0 12px">Activity</h1>
+    ${healthStripHtml()}${problemsHtml()}${filterBarHtml()}${claimsHtml()}${rows}${partial}
   </div>`;
 }
 
+function renderStats() {
+  const m = monitorMetrics();
+  const outcomes = m.judge_outcomes || {};
+  const d = Math.max(1, m.throughput_judges || 0);
+  const spend = m.spend || {};
+  const spark = m.preflight_spark || [];
+  const sparkNote = spark.length
+    ? spark.length + " preflight samples"
+    : "collecting · no samples yet";
+  const partial = (monitor().partial || []).map(p =>
+    `<div class="mono" style="font-size:11px;color:${MUTED};margin-top:6px">${esc(p)}</div>`
+  ).join("");
+  const depthClick = (view, n, label) =>
+    `<a href="#" data-view="${view}" style="display:flex;gap:12px;padding:10px 0;border-top:1px solid rgba(43,36,27,0.10);text-decoration:none;color:inherit">
+      <span class="mono" style="width:92px;color:${GOLD}">${esc(n)}</span>
+      <span style="font-weight:700;width:230px">${esc(label)}</span>
+      <span class="mono" style="color:${MUTED}">open list →</span>
+    </a>`;
+  return `<div style="flex:1;overflow-y:auto;padding:40px 46px 60px;animation:fadeUp 500ms cubic-bezier(0.22,1,0.36,1) both;max-width:760px">
+    <h1 class="play" style="font-size:40px;margin:0 0 12px">Metrics</h1>
+    ${healthStripHtml()}${problemsHtml()}${filterBarHtml()}
+    ${bar("attempts in window", m.throughput_attempts, m.throughput_attempts, Math.max(1, m.throughput_attempts), GREEN)}
+    ${bar("judges in window", m.throughput_judges, m.throughput_judges, d, SLATE)}
+    ${bar("approve", outcomes.approve || 0, outcomes.approve || 0, d, GREEN)}
+    ${bar("remediate", outcomes.remediate || 0, outcomes.remediate || 0, d, CLAY)}
+    ${bar("thin", outcomes.thin || 0, outcomes.thin || 0, d, MUTED)}
+    ${bar("human", outcomes.human || 0, outcomes.human || 0, d, SLATE)}
+    ${bar("model calls (agent.log)", m.model_calls, m.model_calls, Math.max(1, m.model_calls), GOLD)}
+    <div style="border-top:1px solid rgba(43,36,27,0.12);padding-top:24px;margin-top:12px">
+      ${depthClick("queue", m.queue_depth_worker, "worker queue")}
+      ${depthClick("queue", m.queue_depth_judge, "judge queue")}
+      ${depthClick("review", m.queue_depth_review, "awaiting your verdict")}
+      <div style="display:flex;gap:12px;padding:10px 0;border-top:1px solid rgba(43,36,27,0.10)">
+        <span class="mono" style="width:92px;color:${GOLD}">${esc(fmtSec(m.call_latency_s))}</span>
+        <span style="font-weight:700;width:230px">median API-call latency</span>
+        <span style="color:${MUTED}">from agent.log API call lines</span>
+      </div>
+      <div style="display:flex;gap:12px;padding:10px 0;border-top:1px solid rgba(43,36,27,0.10)">
+        <span class="mono" style="width:92px;color:${GOLD}">${esc(fmtSec(m.latency_attempt_to_judge_s))}</span>
+        <span style="font-weight:700;width:230px">median attempt→judge</span>
+        <span style="color:${MUTED}">only when both timestamps exist</span>
+      </div>
+      <div style="display:flex;gap:12px;padding:10px 0;border-top:1px solid rgba(43,36,27,0.10)">
+        <span class="mono" style="width:92px;color:${GOLD}">${esc(fmtUsd(spend.usd))}</span>
+        <span style="font-weight:700;width:230px">estimated spend</span>
+        <span style="color:${MUTED}">${esc(spend.label || "estimated from list prices")}${spend.unknown ? " · " + spend.unknown + " calls unpriced" : ""}</span>
+      </div>
+      <div style="display:flex;gap:12px;padding:10px 0;border-top:1px solid rgba(43,36,27,0.10)">
+        <span class="mono" style="width:92px;color:${m.errors ? CLAY : MUTED}">${esc(m.errors)}</span>
+        <span style="font-weight:700;width:230px">problems</span>
+        <span style="color:${MUTED}">units, stranded, stale preflight, caps</span>
+      </div>
+      <div style="display:flex;gap:12px;padding:10px 0;border-top:1px solid rgba(43,36,27,0.10)">
+        <span class="mono" style="width:92px;color:${MUTED}">${esc(m.preflight_samples || 0)}</span>
+        <span style="font-weight:700;width:230px">preflight eligible</span>
+        <span style="color:${MUTED}">${esc(sparkNote)}</span>
+      </div>
+    </div>
+    ${partial}
+  </div>`;
+}
 function overlays() {
   let html = "";
   if (state.error) html += `<div style="position:fixed;bottom:16px;left:22px;background:${CLAY};color:${PARCH};padding:8px 12px;font-size:13px;z-index:30">${esc(state.error)}</div>`;
@@ -806,7 +978,7 @@ function startDrag(e, key, dir, min, max) {
 
 document.addEventListener("click", async e => {
   const a = e.target.closest("[data-view]");
-  if (a) { e.preventDefault(); state.view = a.getAttribute("data-view"); render(); return; }
+  if (a) { e.preventDefault(); showView(a.getAttribute("data-view")); return; }
   const open = e.target.closest("[data-open]");
   if (open) {
     e.preventDefault();
@@ -875,6 +1047,7 @@ document.addEventListener("click", async e => {
   else if (name === "shortcuts") { state.shortcutsOpen = !state.shortcutsOpen; render(); }
   else if (name === "send-chat") sendComment();
   else if (name === "undo") undoLast();
+  else if (name === "problems") { state.problemsOpen = !state.problemsOpen; render(); }
 });
 
 document.addEventListener("input", e => {
@@ -909,7 +1082,7 @@ window.addEventListener("keydown", e => {
   if (state.gPending) {
     state.gPending = false;
     const map = { o: "home", q: "queue", h: "human", t: "timeline", s: "stats", r: "review" };
-    if (map[e.key]) { e.preventDefault(); state.view = map[e.key]; render(); }
+    if (map[e.key]) { e.preventDefault(); showView(map[e.key]); }
     return;
   }
   if (e.key === "g") { state.gPending = true; return; }

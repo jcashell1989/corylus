@@ -8,14 +8,22 @@ test("empty search restores defaults", () => {
   assert.equal(p.task, null);
   assert.equal(p.cursor, 0);
   assert.equal(p.filter, "all");
+  assert.equal(p.window, "7d");
+  assert.equal(p.akind, "all");
+  assert.equal(p.lane, "all");
+  assert.equal(p.model, "all");
   assert.deepEqual(p.open, url.DEFAULT_OPEN);
   assert.equal(p.human, null);
 });
 
 test("invalid view, filter, task, cursor, human fall back", () => {
-  const p = url.parse("?view=nope&filter=zzz&task=abc&cursor=-2&human=0");
+  const p = url.parse("?view=nope&filter=zzz&task=abc&cursor=-2&human=0&window=nope&akind=x&lane=y&model=");
   assert.equal(p.view, "home");
   assert.equal(p.filter, "all");
+  assert.equal(p.window, "7d");
+  assert.equal(p.akind, "all");
+  assert.equal(p.lane, "all");
+  assert.equal(p.model, "all");
   assert.equal(p.task, null);
   assert.equal(p.cursor, 0);
   assert.equal(p.human, null);
@@ -104,6 +112,10 @@ test("snapshot reads the live state fields used in the URL", () => {
     task: 12,
     cursor: 1,
     filter: "low",
+    window: "7d",
+    akind: "all",
+    lane: "all",
+    model: "all",
     open: url.DEFAULT_OPEN,
     human: null
   });
@@ -138,4 +150,35 @@ test("a history stack restores prior view state on back and forward", () => {
   assert.equal(home.view, "queue");
   const start = back();
   assert.equal(start.view, "home");
+});
+
+test("roundtrip window akind lane model", () => {
+  const src = {
+    view: "timeline",
+    task: null,
+    cursor: 0,
+    filter: "all",
+    window: "24h",
+    akind: "attempt",
+    lane: "worker",
+    model: "openai/gpt-5.6-luna",
+    open: url.DEFAULT_OPEN,
+    human: null
+  };
+  const q = url.serialize(src);
+  const p = url.parse("?" + q);
+  assert.equal(p.view, "timeline");
+  assert.equal(p.window, "24h");
+  assert.equal(p.akind, "attempt");
+  assert.equal(p.lane, "worker");
+  assert.equal(p.model, "openai/gpt-5.6-luna");
+});
+
+test("attempt row serializes review task", () => {
+  const q = url.serialize({
+    view: "review", task: 74, cursor: 0, filter: "all",
+    window: "7d", akind: "all", lane: "all", model: "all",
+    open: url.DEFAULT_OPEN, human: null
+  });
+  assert.equal(q, "view=review&task=74");
 });
