@@ -483,6 +483,31 @@ def _classify(labels: set[str]) -> str:
     return "unclassified"
 
 
+def serialize_judge(judge: dict | None) -> dict:
+    """Pane payload for one hermes:judge comment.
+
+    An empty judges list (or a comment with no verdict) must not invent
+    verdict thin or confidence 0.00 — that is a fake judge (td-b4f126).
+    """
+    judge = judge or {}
+    verdict = judge.get("verdict")
+    if not verdict:
+        return {
+            "model": None,
+            "verdict": None,
+            "confidence": None,
+            "notes": [],
+            "checks": [],
+        }
+    return {
+        "model": judge.get("model") or "—",
+        "verdict": verdict,
+        "confidence": float(judge.get("confidence") or 0),
+        "notes": judge.get("notes") or [],
+        "checks": judge.get("checks") or [],
+    }
+
+
 def _assemble_ticket(client: httpx.Client, task: dict, ui: str) -> dict:
     tid = task["id"]
     labels = [l.get("title") for l in (task.get("labels") or []) if l.get("title")]
@@ -577,13 +602,7 @@ def _assemble_ticket(client: httpx.Client, task: dict, ui: str) -> dict:
             ),
             "git": git,
         },
-        "judge": {
-            "model": latest_j.get("model") or "—",
-            "verdict": latest_j.get("verdict") or "thin",
-            "confidence": float(latest_j.get("confidence") or 0),
-            "notes": latest_j.get("notes") or [],
-            "checks": latest_j.get("checks") or [],
-        },
+        "judge": serialize_judge(latest_j),
         "history": history,
         "artifacts": artifacts,
         "log": log_lines,
@@ -641,7 +660,11 @@ def build_board(host_header: str | None) -> dict:
                 }
             )
     activity = activity[-40:]
-    verdicts = [t["judge"]["verdict"] for t in tickets if t.get("judge")]
+    verdicts = [
+        t["judge"]["verdict"]
+        for t in tickets
+        if (t.get("judge") or {}).get("verdict")
+    ]
     n_approve = sum(1 for v in verdicts if v == "approve")
     n_rem = sum(1 for v in verdicts if v == "remediate")
     n_human = sum(1 for v in verdicts if v == "human")

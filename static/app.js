@@ -8,6 +8,12 @@ const VERDICTS = {
   human:     { label: "human", color: SLATE, glyph: "△" },
   thin:      { label: "thin", color: MUTED, glyph: "?" }
 };
+function judgeChip(j) {
+  const verdict = j && j.verdict;
+  if (!verdict) return { label: "no judge yet", color: MUTED, glyph: "–", present: false };
+  const v = VERDICTS[verdict] || VERDICTS.thin;
+  return { label: v.label, color: v.color, glyph: v.glyph, present: true };
+}
 const CLASSIF = {
   "worker-ready":     { label: "worker:ready", color: GREEN },
   "worker:escalate":  { label: "worker:escalate", color: GOLD },
@@ -285,7 +291,7 @@ function renderHome() {
       ? `Nothing is waiting on a verdict. ${q.length} ticket${q.length === 1 ? " is" : "s are"} next up for agents.`
       : "Nothing is waiting on a verdict, and the agent queue is empty.";
   const top = p.slice(0, 3).map(t => {
-    const v = VERDICTS[t.judge.verdict] || VERDICTS.thin;
+    const v = judgeChip(t.judge);
     return `<div data-open="${t.id}" style="padding:12px 0;border-top:1px solid rgba(43,36,27,0.10);cursor:pointer">
       <div class="mono" style="font-size:11px;display:flex"><span>${esc(t.identifier)}</span><span style="color:${v.color};margin-left:10px">${esc(v.label)}</span><span style="flex:1"></span><span style="color:${t.priority >= 3 ? CLAY : MUTED}">${esc(t.priority_label)}</span></div>
       <div style="font-size:15.5px;margin-top:4px">${esc(t.title)}</div>
@@ -370,7 +376,7 @@ function renderRail(t) {
   pending().forEach(x => { seen.add(x.id); list.push(x); });
   tickets().forEach(x => { if (!seen.has(x.id) && (x.disposition || !x.pending)) list.push(x); });
   const rowHtml = list.map(item => {
-    const v = VERDICTS[item.judge.verdict] || VERDICTS.thin;
+    const v = judgeChip(item.judge);
     const active = t && item.id === t.id;
     const sel = !!state.selected[item.id];
     const decided = !item.pending;
@@ -381,7 +387,7 @@ function renderRail(t) {
         <span style="color:${v.color}">${v.glyph}</span>
       </div>
       <div style="font-size:14px;line-height:1.35;margin-top:4px">${esc(item.title)}</div>
-      <div class="mono" style="font-size:10px;color:${MUTED};margin-top:5px">${decided ? esc((item.disposition && item.disposition.kind) || "decided") + " · click to revisit" : `${esc(v.label)} · ${(item.judge.confidence || 0).toFixed(2)}`}</div>
+      <div class="mono" style="font-size:10px;color:${MUTED};margin-top:5px">${decided ? esc((item.disposition && item.disposition.kind) || "decided") + " · click to revisit" : (v.present ? `${esc(v.label)} · ${(item.judge.confidence || 0).toFixed(2)}` : esc(v.label))}</div>
     </div>`;
   }).join("");
   if (!state.railOpen) return "";
@@ -413,7 +419,7 @@ function renderTicket(t) {
       <div class="mono" style="font-size:11.5px;color:${MUTED}">${state.sessionDecided} decided this session</div>
     </div>`;
   }
-  const v = VERDICTS[t.judge.verdict] || VERDICTS.thin;
+  const v = judgeChip(t.judge);
   const notes = (t.judge.notes || []).map(n => `<p style="font-size:16px;line-height:1.6;margin:14px 0 0;max-width:62ch">${esc(n)}</p>`).join("");
   const checks = (t.judge.checks || []).map(c =>
     `<div class="mono" style="display:flex;gap:10px;font-size:12px;line-height:1.5">
@@ -487,15 +493,15 @@ function renderTicket(t) {
     <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:30px">${labels}</div>
     <div class="rule" style="margin-bottom:22px"></div>
     <div style="background:${SURF};padding:26px 28px 28px">
-      <div class="mono" style="font-size:11px;letter-spacing:0.08em;color:${MUTED}">judge · ${esc(t.judge.model)}</div>
+      <div class="mono" style="font-size:11px;letter-spacing:0.08em;color:${MUTED}">judge${v.present && t.judge.model ? " · " + esc(t.judge.model) : ""}</div>
       <div style="display:flex;align-items:baseline;gap:16px;margin-top:10px">
         <div style="font-size:27px;font-weight:700;color:${v.color}">${esc(v.label)}</div>
-        <div style="flex:1;min-width:140px;display:flex;align-items:center;gap:10px">
+        ${v.present ? `<div style="flex:1;min-width:140px;display:flex;align-items:center;gap:10px">
           <div style="flex:1;height:2px;background:rgba(43,36,27,0.14);position:relative">
             <div style="position:absolute;left:0;top:0;bottom:0;background:${v.color};width:${Math.round((t.judge.confidence || 0) * 100)}%"></div>
           </div>
           <span class="mono" style="font-size:11px;color:${MUTED}">confidence ${(t.judge.confidence || 0).toFixed(2)}</span>
-        </div>
+        </div>` : ""}
       </div>
       ${notes}
       <div style="display:flex;flex-direction:column;gap:7px;margin-top:20px;padding-top:16px;border-top:1px solid rgba(43,36,27,0.14)">${checks}</div>
