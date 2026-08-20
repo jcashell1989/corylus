@@ -14,6 +14,7 @@ test("empty search restores defaults", () => {
   assert.equal(p.model, "all");
   assert.deepEqual(p.open, url.DEFAULT_OPEN);
   assert.equal(p.human, null);
+  assert.equal(p.blocked, null);
 });
 
 test("invalid view, filter, task, cursor, human fall back", () => {
@@ -27,6 +28,7 @@ test("invalid view, filter, task, cursor, human fall back", () => {
   assert.equal(p.task, null);
   assert.equal(p.cursor, 0);
   assert.equal(p.human, null);
+  assert.equal(p.blocked, null);
 });
 
 test("unknown keys are ignored", () => {
@@ -51,7 +53,8 @@ test("serialize omits default home/all/cursor 0", () => {
     cursor: 0,
     filter: "all",
     open: url.DEFAULT_OPEN,
-    human: null
+    human: null,
+    blocked: null
   }), "");
 });
 
@@ -105,6 +108,7 @@ test("snapshot reads the live state fields used in the URL", () => {
     filter: "low",
     open: url.DEFAULT_OPEN,
     humanOpen: null,
+    blockedOpen: null,
     toast: "ignored"
   });
   assert.deepEqual(snap, {
@@ -117,7 +121,8 @@ test("snapshot reads the live state fields used in the URL", () => {
     lane: "all",
     model: "all",
     open: url.DEFAULT_OPEN,
-    human: null
+    human: null,
+    blocked: null
   });
 });
 
@@ -127,7 +132,7 @@ test("a history stack restores prior view state on back and forward", () => {
   function go(partial) {
     const q = url.serialize(Object.assign({
       view: "home", task: null, cursor: 0, filter: "all",
-      open: url.DEFAULT_OPEN, human: null
+      open: url.DEFAULT_OPEN, human: null, blocked: null
     }, partial));
     stack.splice(i + 1);
     stack.push(q);
@@ -178,7 +183,7 @@ test("attempt row serializes review task", () => {
   const q = url.serialize({
     view: "review", task: 74, cursor: 0, filter: "all",
     window: "7d", akind: "all", lane: "all", model: "all",
-    open: url.DEFAULT_OPEN, human: null
+    open: url.DEFAULT_OPEN, human: null, blocked: null
   });
   assert.equal(q, "view=review&task=74");
 });
@@ -200,4 +205,18 @@ test("applyMonitorChip rejects unknown key and bad window", () => {
   assert.equal(url.applyMonitorChip(s, "nope:x"), false);
   assert.equal(url.applyMonitorChip(s, "window:nope"), false);
   assert.equal(s.window, "7d");
+});
+
+test("roundtrip blocked view and expanded row", () => {
+  const q = url.serialize({
+    view: "blocked", blocked: 8, open: url.DEFAULT_OPEN
+  });
+  assert.equal(q, "view=blocked&blocked=8");
+  const state = {
+    view: "home", viewing: null, cursor: 0, filter: "all",
+    open: {}, humanOpen: null, blockedOpen: null
+  };
+  url.apply(state, url.parse("?" + q));
+  assert.equal(state.view, "blocked");
+  assert.equal(state.blockedOpen, 8);
 });

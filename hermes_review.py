@@ -469,6 +469,24 @@ def _parse_disposition(comments: list[dict]) -> dict | None:
     return None
 
 
+def _board_bucket(labels: set[str]) -> str | None:
+    """Which Review list a task belongs on. One lane wins; blocked is last."""
+    if L["human_only"] in labels:
+        return "human"
+    if L["needs_review"] in labels:
+        return "review"
+    if L["blocked"] in labels:
+        return "blocked"
+    if labels & {
+        L["worker_ready"],
+        L["worker_escalate"],
+        L["judge_ready"],
+        L["judge_escalate"],
+    }:
+        return "queue"
+    return None
+
+
 def _classify(labels: set[str]) -> str:
     if L["human_only"] in labels:
         return L["human_only"]
@@ -701,21 +719,18 @@ def build_board(host_header: str | None) -> dict:
         tickets = []
         human_only = []
         queue = []
+        blocked = []
         for task in tasks:
             labels = {l.get("title") for l in (task.get("labels") or [])}
-            if L["human_only"] in labels:
+            bucket = _board_bucket(labels)
+            if bucket == "human":
                 human_only.append(_assemble_ticket(client, task, ui))
-                continue
-            if L["needs_review"] in labels:
+            elif bucket == "review":
                 tickets.append(_assemble_ticket(client, task, ui))
-                continue
-            if labels & {
-                L["worker_ready"],
-                L["worker_escalate"],
-                L["judge_ready"],
-                L["judge_escalate"],
-            }:
+            elif bucket == "queue":
                 queue.append(_assemble_ticket(client, task, ui))
+            elif bucket == "blocked":
+                blocked.append(_assemble_ticket(client, task, ui))
         claim_sources = []
         for task in tasks:
             titles = [
@@ -737,7 +752,7 @@ def build_board(host_header: str | None) -> dict:
         done_tasks, done_capped = _recently_done(client)
         if done_capped:
             truncated.append("recently-done machine comments capped at 15")
-        seen = {t["id"] for t in tickets + queue + human_only}
+        seen = {t["id"] for t in tickets + queue + human_only + blocked}
         for task in done_tasks:
             if task.get("id") in seen:
                 continue
@@ -787,7 +802,7 @@ def build_board(host_header: str | None) -> dict:
             ),
             "review": 0,
         }
-        assembled = tickets + queue + human_only
+        assembled = tickets + queue + human_only + blocked
         mon = monitor.build_monitor(
             assembled=assembled,
             extra_events=extra_events,
@@ -810,6 +825,7 @@ def build_board(host_header: str | None) -> dict:
         )
     tickets.sort(key=lambda t: (-t["priority"], t["id"]))
     human_only.sort(key=lambda t: (-t["priority"], t["id"]))
+    blocked.sort(key=lambda t: (-t["priority"], t["id"]))
     queue.sort(key=lambda t: (-t["priority"], t["id"]))
     pending = [t for t in tickets if t["pending"]]
     for w in monitor.WINDOWS:
@@ -847,6 +863,7 @@ def build_board(host_header: str | None) -> dict:
         "queue": queue,
         "queue_ids": [t["id"] for t in queue],
         "human_only": human_only,
+        "blocked": blocked,
         "activity": mon.get("home_events") or [],
         "metrics": {
             "judge_approve": n_approve,
@@ -856,6 +873,7 @@ def build_board(host_header: str | None) -> dict:
             "open_judged": len(tickets),
             "pending": len(pending),
             "ready": len(queue),
+            "blocked": len(blocked),
             "agreement": f"{agree}/{compared}" if compared else "—",
             "first_attempt": "—",
         },
@@ -1037,6 +1055,39 @@ def human_action(task_id: int, action: str, note: str = "") -> dict:
         return {"ok": True}
 
 
+def blocked_action(task_id: int, action: str, note: str = "") -> dict:
+    load_env()
+    with _client() as client:
+        ids = _labels(client)
+        if action == "note":
+            if note:
+                _comment(client, task_id, note)
+        elif action == "done":
+            client.post(
+                f"/tasks/{task_id}", json={"done": True, "percent_done": 100}
+            ).raise_for_status()
+        elif action == "reopen":
+            client.post(f"/tasks/{task_id}", json={"done": False}).raise_for_status()
+        elif action == "ready":
+            t = client.get(f"/tasks/{task_id}")
+            t.raise_for_status()
+            attached = {
+                l.get("title") for l in (t.json().get("labels") or []) if l.get("title")
+            }
+            _remove_label(client, task_id, L["blocked"], ids, attached)
+            _remove_label(client, task_id, L["worker_escalate"], ids, attached)
+            if L["worker_ready"] not in attached:
+                _add_label(client, task_id, L["worker_ready"], ids)
+            _comment(
+                client,
+                task_id,
+                "Unblocked — worker:ready for the next supervisor run.",
+            )
+        else:
+            raise RuntimeError(f"unknown blocked action {action!r}")
+        return {"ok": True}
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt: str, *args) -> None:
         sys.stderr.write("%s - %s\n" % (self.address_string(), fmt % args))
@@ -1174,6 +1225,20 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(
                     200,
                     human_action(
+                        int(m.group(1)),
+                        str(payload.get("action") or ""),
+                        str(payload.get("note") or ""),
+                    ),
+                )
+            except Exception as exc:
+                self._json(400, {"error": str(exc)})
+            return
+        m = re.fullmatch(r"/api/tasks/(\d+)/blocked", path)
+        if m:
+            try:
+                self._json(
+                    200,
+                    blocked_action(
                         int(m.group(1)),
                         str(payload.get("action") or ""),
                         str(payload.get("note") or ""),

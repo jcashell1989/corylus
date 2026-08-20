@@ -29,6 +29,7 @@ const NAV = [
   ["review", "review", "r"],
   ["queue", "queue", "q"],
   ["human", "human-only", "h"],
+  ["blocked", "blocked", "b"],
   ["timeline", "activity", "t"],
   ["stats", "metrics", "s"]
 ];
@@ -60,6 +61,8 @@ const state = {
   gPending: false,
   humanOpen: null,
   humanDraft: "",
+  blockedOpen: null,
+  blockedDraft: "",
   error: "",
   window: "7d",
   akind: "all",
@@ -333,6 +336,12 @@ function renderHome() {
       <div style="font-size:15.5px;margin-top:4px">${esc(t.title)}</div>
     </div>`
   ).join("") || `<div class="mono" style="font-size:11px;color:${MUTED};padding:12px 0;border-top:1px solid rgba(43,36,27,0.10)">none</div>`;
+  const blocked = (b.blocked || []).slice(0, 3).map(t =>
+    `<div data-view="blocked" style="padding:12px 0;border-top:1px solid rgba(43,36,27,0.10);cursor:pointer">
+      <div class="mono" style="font-size:11px;color:${MUTED}">${esc(t.identifier)} · blocked</div>
+      <div style="font-size:15.5px;margin-top:4px">${esc(t.title)}</div>
+    </div>`
+  ).join("") || `<div class="mono" style="font-size:11px;color:${MUTED};padding:12px 0;border-top:1px solid rgba(43,36,27,0.10)">none</div>`;
   const acts = ((b.monitor && b.monitor.home_events) || b.activity || []).slice(0, 4).map(a =>
     `<div style="display:flex;gap:12px;padding:10px 0;border-top:1px solid rgba(43,36,27,0.10)">
       <span class="mono" style="width:82px;flex:none;font-size:11px;color:${MUTED}">${esc(a.at)}</span>
@@ -356,6 +365,9 @@ function renderHome() {
           <div class="mono" style="font-size:11px;letter-spacing:0.08em;color:${MUTED};display:flex;gap:12px;align-items:baseline">only you can do these<span style="flex:1;height:1px;background:rgba(43,36,27,0.08)"></span></div>
           ${humans}
           <a href="#" data-view="human" class="mono" style="display:inline-block;margin-top:14px;font-size:11px;color:${GOLD}">the human-only list →</a>
+          <div class="mono" style="font-size:11px;letter-spacing:0.08em;color:${MUTED};display:flex;gap:12px;align-items:baseline;margin-top:28px">waiting on a dependency<span style="flex:1;height:1px;background:rgba(43,36,27,0.08)"></span><span>${(b.blocked || []).length}</span></div>
+          ${blocked}
+          <a href="#" data-view="blocked" class="mono" style="display:inline-block;margin-top:14px;font-size:11px;color:${GOLD}">the blocked list →</a>
         </div>
         <div>
           <div class="mono" style="font-size:11px;letter-spacing:0.08em;color:${MUTED};display:flex;gap:12px;align-items:baseline">next up for agents<span style="flex:1;height:1px;background:rgba(43,36,27,0.08)"></span><span>${q.length}</span></div>
@@ -667,6 +679,34 @@ function renderHuman() {
   </div>`;
 }
 
+function renderBlocked() {
+  const rows = (state.board.blocked || []).map(t => {
+    const open = state.blockedOpen === t.id;
+    return `<div style="max-width:720px;border-top:1px solid rgba(43,36,27,0.10);padding:14px 0">
+      <div data-blocked="${t.id}" style="cursor:pointer">
+        <div class="mono" style="font-size:11px;color:${MUTED}">${esc(t.identifier)} · ${esc(t.classification)} · ${esc(t.priority_label)} · ${open ? "−" : "+"}</div>
+        <div style="font-size:19px;margin-top:6px">${esc(t.title)}</div>
+        <div class="mono" style="font-size:11px;color:${MUTED};margin-top:4px">${t.due_date ? "due " + esc(t.due_date) : "no due date"}</div>
+      </div>
+      ${open ? `<div style="border-left:1px solid rgba(43,36,27,0.18);padding-left:16px;margin-top:12px">
+        ${(t.description || []).map(p => `<p style="font-size:15px;line-height:1.6">${esc(p)}</p>`).join("")}
+        ${(t.chat || []).map(m => `<div style="margin-top:10px"><div class="mono" style="font-size:10px;color:${MUTED}">${esc(m.who)}</div><div style="font-size:15px">${esc(m.text)}</div></div>`).join("")}
+        <textarea data-blockeddraft="${t.id}" rows="2" style="width:100%;margin-top:12px;background:${PARCH};border:1px solid rgba(43,36,27,0.24);border-radius:2px;padding:10px">${esc(state.blockedDraft)}</textarea>
+        <div style="display:flex;gap:12px;margin-top:10px;flex-wrap:wrap">
+          <button class="btn" data-blocked-act="note:${t.id}">add note</button>
+          <button class="btn" data-blocked-act="${t.done ? "reopen" : "done"}:${t.id}">${t.done ? "reopen" : "mark done"}</button>
+          <button data-blocked-act="ready:${t.id}" style="background:none;border:0;font-family:'Maple Mono NF',monospace;font-size:11px;color:${GOLD};cursor:pointer;text-decoration:underline">mark worker:ready</button>
+          <a href="${esc(t.href)}" target="_blank" class="mono" style="font-size:11px;margin-left:auto">open in vikunja ↗</a>
+        </div>
+      </div>` : ""}
+    </div>`;
+  }).join("") || `<div class="mono" style="color:${MUTED}">no blocked tasks</div>`;
+  return `<div style="flex:1;overflow-y:auto;padding:40px 46px 60px;animation:fadeUp 500ms cubic-bezier(0.22,1,0.36,1) both">
+    <h1 class="play" style="font-size:40px;margin:0 0 28px">Blocked</h1>
+    <p style="font-size:15px;color:${MUTED};margin:0 0 24px;max-width:640px">Waiting on a dependency. Nightly supervisor skips these. Mark worker:ready when the blocker is gone.</p>${rows}
+  </div>`;
+}
+
 function bar(label, value, n, d, color) {
   const w = d ? Math.round((n / d) * 100) : 0;
   return `<div style="margin-bottom:18px">
@@ -878,7 +918,7 @@ function overlays() {
     const keys = [
       ["j / k", "next / previous"], ["a", "stage approve"], ["r", "revise"], ["c", "stage discard"],
       ["h", "human-only"], ["s", "snooze"], ["u", "undo"], ["1–6", "toggle sections"],
-      ["[ / ]", "queue / discuss"], ["g then o/r/q/h/t/s", "go to view"], ["/", "focus discuss"], ["?", "this card"]
+      ["[ / ]", "queue / discuss"], ["g then o/r/q/h/b/t/s", "go to view"], ["/", "focus discuss"], ["?", "this card"]
     ];
     html += `<div class="scrim" data-act="close-overlay"><div class="card" onclick="event.stopPropagation()">
       <div class="rule" style="margin-bottom:16px"></div>
@@ -948,6 +988,7 @@ function render() {
     review: renderReview,
     queue: renderQueue,
     human: renderHuman,
+    blocked: renderBlocked,
     timeline: renderTimeline,
     stats: renderStats
   }[state.view]();
@@ -1036,6 +1077,23 @@ document.addEventListener("click", async e => {
     } catch (err) { state.error = err.message; }
     render(); return;
   }
+  const blk = e.target.closest("[data-blocked]");
+  if (blk && !e.target.closest("[data-blocked-act]")) {
+    const id = Number(blk.getAttribute("data-blocked"));
+    state.blockedOpen = state.blockedOpen === id ? null : id;
+    render(); return;
+  }
+  const ba = e.target.closest("[data-blocked-act]");
+  if (ba) {
+    const [action, id] = ba.getAttribute("data-blocked-act").split(":");
+    const note = action === "note" ? (state.blockedDraft || "") : "";
+    try {
+      await postJSON("/api/tasks/" + id + "/blocked", { action, note });
+      state.blockedDraft = "";
+      await loadBoard();
+    } catch (err) { state.error = err.message; }
+    render(); return;
+  }
   const act = e.target.closest("[data-act]");
   if (!act) return;
   const name = act.getAttribute("data-act");
@@ -1061,6 +1119,7 @@ document.addEventListener("input", e => {
   if (e.target.id === "chat-draft") state.chatDraft = e.target.value;
   if (e.target.id === "custom-when") { state.customWhen = e.target.value; state.noteText = ""; }
   if (e.target.hasAttribute("data-humandraft")) state.humanDraft = e.target.value;
+  if (e.target.hasAttribute("data-blockeddraft")) state.blockedDraft = e.target.value;
 });
 
 document.addEventListener("mousedown", e => {
@@ -1087,7 +1146,7 @@ window.addEventListener("keydown", e => {
   }
   if (state.gPending) {
     state.gPending = false;
-    const map = { o: "home", q: "queue", h: "human", t: "timeline", s: "stats", r: "review" };
+    const map = { o: "home", q: "queue", h: "human", b: "blocked", t: "timeline", s: "stats", r: "review" };
     if (map[e.key]) { e.preventDefault(); showView(map[e.key]); }
     return;
   }

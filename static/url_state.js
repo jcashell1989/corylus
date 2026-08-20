@@ -6,7 +6,7 @@
     root.HermesReviewUrl = factory();
   }
 })(typeof globalThis !== "undefined" ? globalThis : this, function () {
-  const VIEWS = ["home", "review", "queue", "human", "timeline", "stats"];
+  const VIEWS = ["home", "review", "queue", "human", "blocked", "timeline", "stats"];
   const FILTERS = ["all", "low", "high", "approve", "remediate", "split", "human", "thin"];
   const WINDOWS = ["24h", "7d", "all"];
   const AKINDS = ["all", "attempt", "judge", "preflight", "disposition", "reaper", "call"];
@@ -71,10 +71,17 @@
       human = Number.isInteger(n) && n > 0 ? n : null;
     }
 
+    const blockedRaw = q.get("blocked");
+    let blocked = null;
+    if (blockedRaw) {
+      const n = Number(blockedRaw);
+      blocked = Number.isInteger(n) && n > 0 ? n : null;
+    }
+
     return {
       view: view, task: task, cursor: cursor, filter: filter,
       window: window, akind: akind, lane: lane, model: model,
-      open: open, human: human
+      open: open, human: human, blocked: blocked
     };
   }
 
@@ -90,6 +97,7 @@
     const model = s && s.model;
     const open = (s && s.open) || DEFAULT_OPEN;
     const human = s && s.human;
+    const blocked = s && s.blocked;
 
     if (view && view !== "home") q.set("view", view);
     if (task) q.set("task", String(task));
@@ -107,6 +115,7 @@
       q.set("open", SECTIONS.filter(function (k) { return open[k]; }).join(","));
     }
     if (human) q.set("human", String(human));
+    if (blocked) q.set("blocked", String(blocked));
     return q.toString();
   }
 
@@ -121,6 +130,7 @@
     state.model = parsed.model;
     state.open = Object.assign({}, DEFAULT_OPEN, parsed.open);
     state.humanOpen = parsed.human;
+    state.blockedOpen = parsed.blocked;
   }
 
   function snapshot(state) {
@@ -134,7 +144,8 @@
       lane: state.lane || "all",
       model: state.model || "all",
       open: state.open,
-      human: state.humanOpen
+      human: state.humanOpen || null,
+      blocked: state.blockedOpen || null
     };
   }
 
