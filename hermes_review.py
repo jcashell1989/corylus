@@ -715,6 +715,9 @@ def _assemble_ticket(client: httpx.Client, task: dict, ui: str) -> dict:
             ),
             "git": git,
             "git_pointers": git_pointers,
+            # Distinguishes "no hermes:attempt metadata at all" from a real
+            # non-Git attempt: git_pointers=false is true for both (td-4952a9).
+            "has_attempt": bool(latest_a),
         },
         "judge": serialize_judge(latest_j),
         "judges": [
@@ -801,9 +804,7 @@ def _done_blocked(client: httpx.Client) -> tuple[list[dict], bool]:
     blocked = [
         task
         for task in tasks
-        if L["blocked"] in {
-            label.get("title") for label in (task.get("labels") or [])
-        }
+        if L["blocked"] in {label.get("title") for label in (task.get("labels") or [])}
     ]
     return blocked, len(tasks) >= 100
 
@@ -862,9 +863,10 @@ def build_board(host_header: str | None) -> dict:
         for task in done_blocked:
             if task["id"] in seen:
                 continue
-            if _board_bucket(
-                {l.get("title") for l in (task.get("labels") or [])}
-            ) == "blocked":
+            if (
+                _board_bucket({l.get("title") for l in (task.get("labels") or [])})
+                == "blocked"
+            ):
                 blocked.append(_assemble_ticket(client, task, ui))
                 seen.add(task["id"])
         for task in done_tasks:

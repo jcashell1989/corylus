@@ -13,6 +13,13 @@
     const note = opts.note;
     const notBefore = opts.notBefore;
     const staged = opts.staged || null;
+    // A write is already in flight (post to /decide not yet resolved): ignore
+    // every further intent — stage, confirm, or repeat — until it settles.
+    // Prevents duplicate disposition writes from a double-click or a held
+    // Enter key (td-8fdc53).
+    if (opts.inFlight) {
+      return { action: "wait" };
+    }
     if (kind === "remediate" && note === undefined) {
       return { action: "openNote", kind: "remediate" };
     }

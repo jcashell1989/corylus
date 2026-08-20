@@ -55,6 +55,7 @@ const state = {
   chatDraft: "",
   shortcutsOpen: false,
   staged: null,
+  deciding: false,
   last: null,
   toast: "",
   sessionDecided: 0,
@@ -222,13 +223,16 @@ async function decide(kind, note, notBefore) {
   const step = HermesReviewDisposition.intent(kind, {
     note: note,
     notBefore: notBefore,
-    staged: state.staged
+    staged: state.staged,
+    inFlight: state.deciding
   });
+  if (step.action === "wait") return;
   if (step.action === "openNote") return openNote(step.kind);
   if (step.action === "stage") { state.staged = step.kind; render(); return; }
   kind = step.kind;
   if (step.note !== undefined) note = step.note;
   if (step.notBefore !== undefined) notBefore = step.notBefore;
+  state.deciding = true;
   try {
     const tokens = [];
     for (const id of targets) {
@@ -249,6 +253,8 @@ async function decide(kind, note, notBefore) {
     await loadBoard();
   } catch (e) {
     state.error = e.message;
+  } finally {
+    state.deciding = false;
   }
   render();
 }
@@ -505,14 +511,10 @@ function renderTicket(t) {
       </div>
       ${open ? `<div style="padding:12px 0 20px">${body}</div>` : ""}
     </div>`;
-  }).join("") || (t.attempt.git_pointers
-    ? `<div style="color:${MUTED};font-size:14px">no artifacts — add git pointers on post-attempt to get a diff here</div>`
-    : `<div style="color:${MUTED};font-size:14px">no Git pointers on this attempt — non-Git task, nothing to diff</div>`);
+  }).join("") || `<div style="color:${MUTED};font-size:14px">${esc(HermesReviewAttempt.noArtifactsText(t.attempt))}</div>`;
   const log = (t.log || []).map(l =>
     `<div class="mono" style="display:flex;gap:14px;font-size:12px"><span style="color:${MUTED}">${esc(l.at)}</span><span style="color:${GREEN};width:52px">${esc(l.level)}</span><span>${esc(l.msg)}</span></div>`
-  ).join("") || (t.attempt.git_pointers
-    ? `<div style="color:${MUTED}">no run log captured</div>`
-    : `<div style="color:${MUTED}">no run log captured — non-Git task and no handoff comment found</div>`);
+  ).join("") || `<div style="color:${MUTED}">${esc(HermesReviewAttempt.noLogText(t.attempt))}</div>`;
   const hist = (t.history || []).map((h, i) => {
     const open = !!(state.openCompare[t.id] && state.openCompare[t.id][i]);
     return `<div style="border-left:1px solid rgba(43,36,27,0.18);padding-left:16px">

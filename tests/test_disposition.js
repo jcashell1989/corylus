@@ -55,3 +55,18 @@ test("close-overlay: a click bubbling up from card content does not close it (td
   const confirmButton = {};
   assert.equal(d.closesOverlay(scrim, confirmButton), false);
 });
+
+test("in-flight confirm is ignored, not re-posted (td-8fdc53)", () => {
+  const got = d.intent("approve", { staged: "approve", inFlight: true });
+  assert.deepEqual(got, { action: "wait" });
+});
+
+test("in-flight guard beats staging a fresh kind, not just a repeat", () => {
+  const got = d.intent("human", { staged: "approve", inFlight: true });
+  assert.deepEqual(got, { action: "wait" });
+});
+
+test("once not in flight, confirm posts again (guard releases after settling)", () => {
+  const got = d.intent("approve", { staged: "approve", inFlight: false });
+  assert.equal(got.action, "post");
+});
