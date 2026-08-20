@@ -83,3 +83,27 @@ class BoardBucketTests(unittest.TestCase):
 
     def test_unclassified(self):
         self.assertIsNone(hr._board_bucket(set()))
+
+class DoneBlockedTests(unittest.TestCase):
+    def test_done_blocked_filters_completed_tasks_and_reports_cap(self):
+        class Response:
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return [
+                    {"id": 8, "labels": [{"title": L["blocked"]}]},
+                    {"id": 9, "labels": [{"title": L["worker_ready"]}]},
+                ]
+
+        class Client:
+            def get(self, path, params=None):
+                self.path = path
+                self.params = params
+                return Response()
+
+        client = Client()
+        blocked, capped = hr._done_blocked(client)
+        self.assertEqual([task["id"] for task in blocked], [8])
+        self.assertFalse(capped)
+        self.assertEqual(client.params["per_page"], 100)

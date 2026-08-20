@@ -337,10 +337,10 @@ function renderHome() {
     </div>`
   ).join("") || `<div class="mono" style="font-size:11px;color:${MUTED};padding:12px 0;border-top:1px solid rgba(43,36,27,0.10)">none</div>`;
   const blocked = (b.blocked || []).slice(0, 3).map(t =>
-    `<div data-view="blocked" style="padding:12px 0;border-top:1px solid rgba(43,36,27,0.10);cursor:pointer">
+    `<a href="#" data-view="blocked" style="display:block;padding:12px 0;border-top:1px solid rgba(43,36,27,0.10);cursor:pointer;color:inherit;text-decoration:none">
       <div class="mono" style="font-size:11px;color:${MUTED}">${esc(t.identifier)} · blocked</div>
       <div style="font-size:15.5px;margin-top:4px">${esc(t.title)}</div>
-    </div>`
+    </a>`
   ).join("") || `<div class="mono" style="font-size:11px;color:${MUTED};padding:12px 0;border-top:1px solid rgba(43,36,27,0.10)">none</div>`;
   const acts = ((b.monitor && b.monitor.home_events) || b.activity || []).slice(0, 4).map(a =>
     `<div style="display:flex;gap:12px;padding:10px 0;border-top:1px solid rgba(43,36,27,0.10)">
@@ -683,7 +683,7 @@ function renderBlocked() {
   const rows = (state.board.blocked || []).map(t => {
     const open = state.blockedOpen === t.id;
     return `<div style="max-width:720px;border-top:1px solid rgba(43,36,27,0.10);padding:14px 0">
-      <div data-blocked="${t.id}" style="cursor:pointer">
+      <div data-blocked="${t.id}" role="button" tabindex="0" aria-expanded="${open}" style="cursor:pointer">
         <div class="mono" style="font-size:11px;color:${MUTED}">${esc(t.identifier)} · ${esc(t.classification)} · ${esc(t.priority_label)} · ${open ? "−" : "+"}</div>
         <div style="font-size:19px;margin-top:6px">${esc(t.title)}</div>
         <div class="mono" style="font-size:11px;color:${MUTED};margin-top:4px">${t.due_date ? "due " + esc(t.due_date) : "no due date"}</div>
@@ -1016,6 +1016,16 @@ function startDrag(e, key, dir, min, max) {
   window.addEventListener("mousemove", move);
   window.addEventListener("mouseup", up);
 }
+
+document.addEventListener("keydown", e => {
+  const blk = e.target.closest && e.target.closest("[data-blocked]");
+  if (!blk || e.target.closest("[data-blocked-act]")) return;
+  if (e.key !== "Enter" && e.key !== " ") return;
+  e.preventDefault();
+  const id = Number(blk.getAttribute("data-blocked"));
+  state.blockedOpen = state.blockedOpen === id ? null : id;
+  render();
+});
 
 document.addEventListener("click", async e => {
   const a = e.target.closest("[data-view]");

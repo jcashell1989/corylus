@@ -705,6 +705,32 @@ def _recently_done(client: httpx.Client) -> tuple[list[dict], bool]:
     return tasks, len(tasks) >= 15
 
 
+def _done_blocked(client: httpx.Client) -> tuple[list[dict], bool]:
+    """Load completed blocked tasks so the blocked list can reopen them."""
+    try:
+        r = client.get(
+            "/tasks",
+            params={
+                "filter": "done = true",
+                "per_page": 100,
+                "sort_by": "updated",
+                "order_by": "desc",
+            },
+        )
+        r.raise_for_status()
+    except Exception:
+        return [], False
+    tasks = r.json() or []
+    blocked = [
+        task
+        for task in tasks
+        if L["blocked"] in {
+            label.get("title") for label in (task.get("labels") or [])
+        }
+    ]
+    return blocked, len(tasks) >= 100
+
+
 def _dispatch_today(path: Path) -> int:
     return monitor.dispatch_count(path, _now().strftime("%Y-%m-%d"))
 
@@ -752,7 +778,18 @@ def build_board(host_header: str | None) -> dict:
         done_tasks, done_capped = _recently_done(client)
         if done_capped:
             truncated.append("recently-done machine comments capped at 15")
+        done_blocked, done_blocked_capped = _done_blocked(client)
+        if done_blocked_capped:
+            truncated.append("completed blocked list capped at 100")
         seen = {t["id"] for t in tickets + queue + human_only + blocked}
+        for task in done_blocked:
+            if task["id"] in seen:
+                continue
+            if _board_bucket(
+                {l.get("title") for l in (task.get("labels") or [])}
+            ) == "blocked":
+                blocked.append(_assemble_ticket(client, task, ui))
+                seen.add(task["id"])
         for task in done_tasks:
             if task.get("id") in seen:
                 continue
