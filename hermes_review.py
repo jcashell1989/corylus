@@ -469,6 +469,65 @@ def _parse_disposition(comments: list[dict]) -> dict | None:
     return None
 
 
+def _machine_marker_ids(machine: dict) -> list[int]:
+    ids = []
+    for bucket in ("attempts", "judges"):
+        for row in machine.get(bucket) or []:
+            cid = row.get("_comment_id")
+            if cid is not None:
+                ids.append(int(cid))
+    for key in ("control_comment_id", "session_comment_id", "organizer_comment_id"):
+        cid = machine.get(key)
+        if cid is not None:
+            ids.append(int(cid))
+    return sorted(set(ids))
+
+
+def _handoff_comment(comments: list[dict], machine: dict, attempt: dict) -> dict | None:
+    """Latest human-readable comment posted after this attempt's machine
+    marker and before the next one — the worker's handoff note (td-4952a9).
+
+    Non-Git attempts (host-operations tasks) have no git pointers, so this
+    is the only execution evidence available for the run-log section.
+    """
+    a_id = attempt.get("_comment_id")
+    if a_id is None:
+        return None
+    a_id = int(a_id)
+    markers = _machine_marker_ids(machine)
+    upper = next((m for m in markers if m > a_id), None)
+    best = None
+    for c in comments or []:
+        cid = c.get("id")
+        if cid is None:
+            continue
+        cid = int(cid)
+        if cid <= a_id or (upper is not None and cid >= upper):
+            continue
+        raw_text = (c.get("comment") or "").strip()
+        if not raw_text or any(m in raw_text for m in MACHINE_MARKERS):
+            continue
+        author = c.get("author") or {}
+        uid = author.get("id")
+        uname = (author.get("username") or "").lower()
+        if not (uid == BOT_USER_ID or uname == BOT_USERNAME):
+            continue
+        if best is None or cid > int(best.get("id") or 0):
+            best = c
+    return best
+
+
+def _handoff_log_lines(
+    comments: list[dict], machine: dict, attempt: dict
+) -> list[dict]:
+    handoff = _handoff_comment(comments, machine, attempt)
+    if not handoff:
+        return []
+    at = handoff.get("created") or ""
+    paras = _split_paras(handoff.get("comment") or "")
+    return [{"at": at, "level": "handoff", "msg": p} for p in paras]
+
+
 def _board_bucket(labels: set[str]) -> str | None:
     """Which Review list a task belongs on. One lane wins; blocked is last."""
     if L["human_only"] in labels:
@@ -560,24 +619,41 @@ def _assemble_ticket(client: httpx.Client, task: dict, ui: str) -> dict:
     latest_a = attempts[-1] if attempts else {}
     latest_j = judge_for_attempt(judges, latest_a.get("n"))
     git = latest_a.get("git") or {}
+    git_pointers = bool(git.get("repo") and git.get("base") and git.get("tip"))
     artifacts = []
     log_lines = []
-    if git.get("repo") and git.get("base") and git.get("tip"):
+    if git_pointers:
         gr = hmc.git_range(git["repo"], git["base"], git["tip"])
+        diff_ok = bool(gr.get("ok"))
+        if diff_ok:
+            stat_lines = (gr.get("diff_stat") or "").strip().splitlines()
+            detail = (
+                stat_lines[-1]
+                if stat_lines
+                else f"{git.get('base', '')[:7]}..{git.get('tip', '')[:7]}"
+            )
+        else:
+            err_lines = (
+                (gr.get("stderr") or gr.get("error") or "git diff failed")
+                .strip()
+                .splitlines()
+            )
+            detail = err_lines[0] if err_lines else "git diff failed"
         artifacts.append(
             {
                 "kind": "diff",
                 "name": git.get("branch") or Path(git["repo"]).name,
-                "detail": (
-                    (gr.get("diff_stat") or "").strip().splitlines()[-1]
-                    if gr.get("diff_stat")
-                    else f"{git.get('base', '')[:7]}..{git.get('tip', '')[:7]}"
-                ),
+                "ok": diff_ok,
+                "detail": detail,
                 "diff": gr.get("diff") or "",
             }
         )
         for line in (gr.get("log") or "").splitlines():
             log_lines.append({"at": "", "level": "ok", "msg": line})
+    elif latest_a:
+        # Non-Git (host-operations) attempt: no git object to diff or log.
+        # Surface the worker's handoff comment instead (td-4952a9).
+        log_lines = _handoff_log_lines(comments, machine, latest_a)
     history = []
     for a in attempts[:-1] if len(attempts) > 1 else []:
         matched = judge_for_attempt(judges, a.get("n"))
@@ -638,6 +714,7 @@ def _assemble_ticket(client: httpx.Client, task: dict, ui: str) -> dict:
                 else "no git pointers"
             ),
             "git": git,
+            "git_pointers": git_pointers,
         },
         "judge": serialize_judge(latest_j),
         "judges": [

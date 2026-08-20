@@ -491,6 +491,8 @@ function renderTicket(t) {
                     <span style="background:${rbg};padding:2px 12px;white-space:pre-wrap;font-family:'Maple Mono NF',monospace;font-size:12px;line-height:1.6">${esc(r.right || " ")}</span>`;
           }).join("")}
         </div>`;
+    } else if (open && a.ok === false) {
+      body = `<div style="color:${CLAY};font-size:14px">git diff failed — ${esc(a.detail)}</div>`;
     } else if (open) {
       body = `<div style="color:${MUTED};font-size:14px">no line-level diff captured — ${esc(a.kind)}, ${esc(a.detail)}</div>`;
     }
@@ -503,10 +505,14 @@ function renderTicket(t) {
       </div>
       ${open ? `<div style="padding:12px 0 20px">${body}</div>` : ""}
     </div>`;
-  }).join("") || `<div style="color:${MUTED};font-size:14px">no artifacts — add git pointers on post-attempt to get a diff here</div>`;
+  }).join("") || (t.attempt.git_pointers
+    ? `<div style="color:${MUTED};font-size:14px">no artifacts — add git pointers on post-attempt to get a diff here</div>`
+    : `<div style="color:${MUTED};font-size:14px">no Git pointers on this attempt — non-Git task, nothing to diff</div>`);
   const log = (t.log || []).map(l =>
     `<div class="mono" style="display:flex;gap:14px;font-size:12px"><span style="color:${MUTED}">${esc(l.at)}</span><span style="color:${GREEN};width:52px">${esc(l.level)}</span><span>${esc(l.msg)}</span></div>`
-  ).join("") || `<div style="color:${MUTED}">no run log captured</div>`;
+  ).join("") || (t.attempt.git_pointers
+    ? `<div style="color:${MUTED}">no run log captured</div>`
+    : `<div style="color:${MUTED}">no run log captured — non-Git task and no handoff comment found</div>`);
   const hist = (t.history || []).map((h, i) => {
     const open = !!(state.openCompare[t.id] && state.openCompare[t.id][i]);
     return `<div style="border-left:1px solid rgba(43,36,27,0.18);padding-left:16px">
