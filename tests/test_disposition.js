@@ -44,3 +44,14 @@ test("Escape is a clear, never a post", () => {
   assert.deepEqual(d.onEscape(), { action: "clear" });
   assert.notEqual(d.onEscape().action, "post");
 });
+
+test("close-overlay: clicking the scrim itself closes it", () => {
+  const scrim = {};
+  assert.equal(d.closesOverlay(scrim, scrim), true);
+});
+
+test("close-overlay: a click bubbling up from card content does not close it (td-8fdc53)", () => {
+  const scrim = {};
+  const confirmButton = {};
+  assert.equal(d.closesOverlay(scrim, confirmButton), false);
+});

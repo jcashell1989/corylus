@@ -33,10 +33,17 @@
     return { action: "clear" };
   }
 
+  // Overlay scrim closes only on a direct click on the scrim itself — not a
+  // click that bubbled up from card content (confirm buttons, checkboxes, text).
+  function closesOverlay(actElement, targetElement) {
+    return actElement === targetElement;
+  }
+
   return {
     IRREVERSIBLE: IRREVERSIBLE,
     intent: intent,
     confirmNote: confirmNote,
-    onEscape: onEscape
+    onEscape: onEscape,
+    closesOverlay: closesOverlay
   };
 });

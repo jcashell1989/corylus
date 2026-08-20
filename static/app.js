@@ -926,7 +926,7 @@ function overlays() {
       ["h", "human-only"], ["s", "snooze"], ["u", "undo"], ["1–6", "toggle sections"],
       ["[ / ]", "queue / discuss"], ["g then o/r/q/h/b/t/s", "go to view"], ["/", "focus discuss"], ["?", "this card"]
     ];
-    html += `<div class="scrim" data-act="close-overlay"><div class="card" onclick="event.stopPropagation()">
+    html += `<div class="scrim" data-act="close-overlay"><div class="card">
       <div class="rule" style="margin-bottom:16px"></div>
       <h2 class="play" style="font-size:28px;margin:0 0 18px">Keys</h2>
       <div style="display:grid;grid-template-columns:70px 1fr;gap:8px 16px">
@@ -942,7 +942,7 @@ function overlays() {
       ["Monday morning", "next Monday 08:00"],
       ["a week from now", "+7 days"]
     ];
-    html += `<div class="scrim" data-act="close-overlay"><div class="card" style="max-width:460px" onclick="event.stopPropagation()">
+    html += `<div class="scrim" data-act="close-overlay"><div class="card" style="max-width:460px">
       <div class="rule" style="margin-bottom:16px"></div>
       <h2 class="play" style="font-size:26px;margin:0 0 8px">Snooze ${esc((current() || {}).identifier || "")}</h2>
       <div class="mono" style="font-size:11px;color:${MUTED};margin-bottom:14px">until when?</div>
@@ -957,7 +957,7 @@ function overlays() {
     </div></div>`;
   }
   if (state.staged === "noAction") {
-    html += `<div class="scrim" data-act="close-overlay"><div class="card" style="max-width:460px" onclick="event.stopPropagation()">
+    html += `<div class="scrim" data-act="close-overlay"><div class="card" style="max-width:460px">
       <div style="width:32px;height:2px;background:${CLAY};margin-bottom:16px"></div>
       <h2 class="play" style="font-size:26px;margin:0 0 12px">Discard the work on ${esc((current() || {}).identifier || "")}?</h2>
       <p style="font-size:16px;line-height:1.55;color:${MUTED}">The attempt is thrown away and the ticket closes with no action. Hermes will not pick it up again.</p>
@@ -965,7 +965,7 @@ function overlays() {
     </div></div>`;
   }
   if (state.staged === "approve") {
-    html += `<div class="scrim" data-act="close-overlay"><div class="card" style="max-width:460px" onclick="event.stopPropagation()">
+    html += `<div class="scrim" data-act="close-overlay"><div class="card" style="max-width:460px">
       <div class="rule" style="margin-bottom:16px"></div>
       <h2 class="play" style="font-size:26px;margin:0 0 12px">Approve ${esc((current() || {}).identifier || "")}?</h2>
       <p style="font-size:16px;line-height:1.55;color:${MUTED}">This writes the verdict to Vikunja. Press confirm, or Escape to cancel.</p>
@@ -973,7 +973,7 @@ function overlays() {
     </div></div>`;
   }
   if (state.staged === "human") {
-    html += `<div class="scrim" data-act="close-overlay"><div class="card" style="max-width:460px" onclick="event.stopPropagation()">
+    html += `<div class="scrim" data-act="close-overlay"><div class="card" style="max-width:460px">
       <div class="rule" style="margin-bottom:16px"></div>
       <h2 class="play" style="font-size:26px;margin:0 0 12px">Mark ${esc((current() || {}).identifier || "")} human-only?</h2>
       <p style="font-size:16px;line-height:1.55;color:${MUTED}">Agents will stop working this ticket. Press confirm, or Escape to cancel.</p>
@@ -1113,6 +1113,7 @@ document.addEventListener("click", async e => {
   const act = e.target.closest("[data-act]");
   if (!act) return;
   const name = act.getAttribute("data-act");
+  if (name === "close-overlay" && !HermesReviewDisposition.closesOverlay(act, e.target)) return;
   if (name === "approve") decide("approve");
   else if (name === "remediate") decide("remediate");
   else if (name === "noAction") decide("noAction");
