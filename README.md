@@ -1,18 +1,46 @@
 # Corylus
 
-Corylus is the genus of the hazel; the dashboard's internal codename was Catkin —
-the hazel's flower — so the lineage is real. A review queue for judged agent work
-on Vikunja. Runs on loopback or a private network; not meant for the open internet.
+A review queue for judged agent work.
 
-- Binds `localhost:8789` (override `HERMES_REVIEW_HOST` / `HERMES_REVIEW_PORT`)
-- Reads Vikunja + `hermes:attempt` / `hermes:judge` / `hermes:control` / `hermes:session` machine comments
-- Diffs via `git-range` when an attempt has git pointers
-- Writes dispositions back to Vikunja (labels + comments + `not_before`)
-- Activity / Metrics are pipeline ops views (health, problems, claims, agent.log API calls). Spend is an estimate from tokens × OpenRouter list prices, not billed.
-- Discuss column is a per-ticket Hermes session via loopback webui (`127.0.0.1:8787`). Browser never talks to `:8787`. Transcript is not copied to Vikunja.
-- Vikunja API token never leaves the box. Writes require a per-start `X-Hermes-Review-Token` (injected into the HTML) and a `Host` header matching the configured bind host. That is CSRF / DNS-rebinding protection, not an ACL: a peer who can load the page can scrape the token. Bind to loopback or a network you control.
+Corylus reads the machine comments AI workers leave on tickets — attempts,
+verdicts, dispositions — and gives one human a fast, keyboard-driven surface
+for deciding what actually shipped. Built for a household where agents open
+tickets, do the work, and wait for review. The premise is simple: agent
+autonomy is fine until someone has to answer for it. Corylus makes answering
+fast.
 
-## Configuration
+Corylus is the genus of the hazel; the internal codename was Catkin — the
+hazel's flower — so the lineage is real.
+
+- [x] Reads `hermes:attempt` / `hermes:judge` / `hermes:control` / `hermes:session` machine comments from Vikunja
+- [x] Diff review via `git-range` when an attempt carries git pointers
+- [x] Dispositions written back to Vikunja: labels, comments, `not_before` snoozes
+- [x] Activity and Metrics views over the pipeline: health, problems, claims, API-call feed, token-spend estimates
+- [x] Per-ticket Discuss sessions through the loopback Hermes webui — the browser never talks to it directly
+- [x] Restorable URL state: every view, filter, and pane is a shareable link
+- [x] Fail-closed write path (see Security)
+
+## Security
+
+The Vikunja API token never leaves the box. Writes require a per-start
+`X-Hermes-Review-Token` (injected into the served HTML) and a `Host` header
+matching the configured bind host. That is CSRF / DNS-rebinding protection,
+not an ACL: a peer who can load the page can scrape the token. Bind to
+loopback or a network you control — Corylus is not meant for the open
+internet.
+
+## Running
+
+```bash
+python3 hermes_review.py
+```
+
+Binds `localhost:8789`. Requires Python 3.11+ and
+[`httpx`](https://pypi.org/project/httpx/). Corylus grew inside a
+[Hermes Agent](https://github.com/NousResearch/hermes-agent) household and
+imports three small sibling modules from that setup (`vikunja_config`,
+`hermes_machine_comments`, `vikunja_preflight`) — point `PYTHONPATH` at them
+or vendor them.
 
 | Env var | Default | Meaning |
 |---|---|---|
@@ -22,34 +50,31 @@ on Vikunja. Runs on loopback or a private network; not meant for the open intern
 | `VIKUNJA_URL` | config, else `localhost:8788` | Vikunja API base |
 | `HERMES_WEBUI_URL` | `http://127.0.0.1:8787` | Loopback webui base for Discuss sessions |
 
-```bash
-export XDG_RUNTIME_DIR=/run/user/$(id -u)
-systemctl --user restart hermes-review
+## View state
+
+Every click is a link. View, selected task, list cursor, filters, open
+sections, and time windows live in the query string via `history.pushState`
+— reloads, pasted URLs, and back/forward all re-apply exactly, and unknown
+parameters fall back to defaults.
+
+```
+?view=review&task=52        the review pane for task 52
+?view=blocked&blocked=8     the blocked list, row 8 expanded
 ```
 
-## URL state
+Full parameter reference: [`docs/url-state.md`](docs/url-state.md)
 
-Restorable view state lives in the query string. Clicks and keyboard navigation call `history.pushState` (no full reload). Reloads, pasted links, and browser back/forward re-apply the same fields. Invalid or unknown parameters fall back to the defaults below.
-
-| Param | Meaning | Default if missing or invalid |
-|---|---|---|
-| `view` | `home` · `review` · `queue` · `human` · `blocked` · `timeline` · `stats` | `home` |
-| `task` | Vikunja task id in the review pane | none |
-| `cursor` | index in the pending review list | `0` |
-| `filter` | `all` · `low` · `high` · or a verdict (`approve` / `remediate` / `split` / `human` / `thin`) | `all` |
-| `open` | comma-separated open review sections | `description,attempt,history` |
-| `human` | expanded row on the human-only list | none |
-| `blocked` | expanded row on the blocked list | none |
-| `window` | Activity/Metrics time window: `24h` · `7d` · `all` | `7d` |
-| `akind` | event kind: `all` · `attempt` · `judge` · `preflight` · `disposition` · `reaper` · `call` | `all` |
-| `lane` | `all` · `worker` · `worker-escalate` · `judge` · `judge-escalate` | `all` |
-| `model` | exact judge/call model string | `all` |
-
-Not encoded: drafts, toasts, discard/revise overlays, pane widths, multi-select, artifact/compare expand.
-
-Example: `http://localhost:8789/?view=review&task=52` · blocked: `?view=blocked&blocked=8`
+## Tests
 
 ```bash
 node --test tests/test_url_state.js tests/test_disposition.js
-~/.hermes/hermes-agent/venv/bin/python -m unittest tests/test_write_auth.py tests/test_serialize_judge.py tests/test_judge_for_attempt.py tests/test_undo.py tests/test_monitor.py tests/test_board_bucket.py
+python3 -m unittest tests/test_write_auth.py tests/test_serialize_judge.py \
+  tests/test_judge_for_attempt.py tests/test_undo.py tests/test_monitor.py \
+  tests/test_board_bucket.py
 ```
+
+The Python lane needs `httpx` on the interpreter.
+
+---
+
+The agents do the work. Corylus is where a human answers for it.
