@@ -1,7 +1,20 @@
+<div align="center">
+
+<img src="static/assets/logo-mark-black.svg#gh-light-mode-only" alt="Corylus — a hazel branch with catkins" width="140">
+<img src="static/assets/logo-mark-white.svg#gh-dark-mode-only" alt="Corylus — a hazel branch with catkins" width="140">
+
 # Corylus
 
-Corylus is the control layer for an automated agentic work pipeline: fast,
-reliable human judgment over everything the machines ship.
+**The control layer for an automated agentic work pipeline.**
+
+Fast, reliable human judgment over everything the machines ship.
+
+![Python](https://img.shields.io/badge/python-3.11%2B-3D6B3E?style=flat-square)
+![httpx](https://img.shields.io/badge/deps-httpx%20only-3A5563?style=flat-square)
+![Frontend](https://img.shields.io/badge/frontend-vanilla%20JS-7A6020?style=flat-square)
+![Tests](https://img.shields.io/badge/tests-passing-3D6B3E?style=flat-square)
+
+</div>
 
 ## Why
 
@@ -19,6 +32,17 @@ Corylus sits in between three services:
 1. Hermes Agent as an agent runtime
 2. Vikunja as a project-tracking service
 3. Me, I'm a service. (MIaS)
+
+```mermaid
+graph LR
+    CRON[cron] --> W[Hermes Agent<br>picks up a ticket]
+    W -- hermes:attempt --> V[("Vikunja")]
+    V -- attempt --> J[Judge agent<br>reads the work]
+    J -- hermes:judge<br>verdict + confidence --> V
+    V --> C[[Corylus]]
+    HUMAN([Me]) --> C
+    C -- approve · send back · discard --> V
+```
 
 Cronjobs in the Hermes runtime trigger on a reasonable schedule, the agent picks
 up a ticket based on priority and urgency ranking. Once it's done, a separate judge
@@ -68,7 +92,7 @@ clone, install `httpx`, run.
 | `HERMES_REVIEW_PORT` | `8789` | Listen port |
 | `HERMES_REVIEW_TAILNET` | RFC 6598 CGNAT /10 | Network whose peers get host-relative Vikunja UI links |
 | `VIKUNJA_URL` | config, else `localhost:8788` | Vikunja API base |
-| `HERMES_WEBUI_URL` | `http://127.0.0.1:8787` | Loopback webui base for Discuss sessions |
+| `HERMES_WEBUI_URL` | `http://[IP_ADDRESS]:8787` | Loopback webui base for Discuss sessions |
 
 ## View state
 
