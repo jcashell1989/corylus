@@ -57,10 +57,10 @@ python3 hermes_review.py
 
 Binds `localhost:8789`. Requires Python 3.11+ and
 [`httpx`](https://pypi.org/project/httpx/). Corylus grew inside a
-[Hermes Agent](https://github.com/NousResearch/hermes-agent) household and
-imports three small sibling modules from that setup (`vikunja_config`,
-`hermes_machine_comments`, `vikunja_preflight`) — point `PYTHONPATH` at them
-or vendor them.
+[Hermes Agent](https://github.com/NousResearch/hermes-agent) household; the
+three sibling modules it talks to (`vikunja_config`,
+`hermes_machine_comments`, `vikunja_preflight`) are vendored in this repo —
+clone, install `httpx`, run.
 
 | Env var | Default | Meaning |
 |---|---|---|
