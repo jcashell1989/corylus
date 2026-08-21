@@ -1,11 +1,7 @@
 # Corylus
 
-A review queue for judged agent work.
-
-## In one sentence
-
-Corylus provides a control and monitoring system for an automated agentic work
-pipeline, allowing for fast, reliable human judgement and feedback.
+Corylus is the control layer for an automated agentic work pipeline: fast,
+reliable human judgment over everything the machines ship.
 
 ## Why
 
@@ -34,7 +30,7 @@ take a look and determine whether to approve, send it back, discard, etc.
 I create a bunch of tickets in Vikunja and in the morning a bunch of completed work
 is sitting in the review queue for me.
 
-## Actions
+## Capabilities
 
 - [x] Reads `hermes:attempt` / `hermes:judge` / `hermes:control` / `hermes:session` machine comments from Vikunja
 - [x] Diff review via `git-range` when an attempt carries git pointers
@@ -42,7 +38,7 @@ is sitting in the review queue for me.
 - [x] Activity and Metrics views over the pipeline: health, problems, claims, API-call feed, token-spend estimates
 - [x] Per-ticket Discuss sessions through the loopback Hermes webui — the browser never talks to it directly
 - [x] Restorable URL state: every view, filter, and pane is a shareable link
-- [x] Fail-closed write path (see Security)
+- [x] Token-gated write path (see Security)
 
 ## Security
 
@@ -101,4 +97,4 @@ The Python lane needs `httpx` on the interpreter.
 
 ## The Name
 
-It's the genus for Hazel trees and it sounds pretty. It's a family thing.
+It's the genus of hazel trees and it sounds pretty. It's a family thing.
