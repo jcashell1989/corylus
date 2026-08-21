@@ -2,15 +2,39 @@
 
 A review queue for judged agent work.
 
-Corylus reads the machine comments AI workers leave on tickets — attempts,
-verdicts, dispositions — and gives one human a fast, keyboard-driven surface
-for deciding what actually shipped. Built for a household where agents open
-tickets, do the work, and wait for review. The premise is simple: agent
-autonomy is fine until someone has to answer for it. Corylus makes answering
-fast.
+## In one sentence
 
-Corylus is the genus of the hazel; the internal codename was Catkin — the
-hazel's flower — so the lineage is real.
+Corylus provides a control and monitoring system for an automated agentic work
+pipeline, allowing for fast, reliable human judgement and feedback.
+
+## Why
+
+Lately, I've found myself in a loop: writing tickets, having agents perform them, 
+then having another agent rip it apart before I judge it for myself. It's a 
+useful pattern for producing somewhat pressure-tested code, but I started to get 
+tired of triggering review skills and manually telling the agent to keep going.
+
+So I automated myself out of it. 
+
+## What
+
+Corylus sits in between three services:
+
+1. Hermes Agent as an agent runtime
+2. Vikunja as a project-tracking service
+3. Me, I'm a service. (MIaS)
+
+Cronjobs in the Hermes runtime trigger on a reasonable schedule, the agent picks
+up a ticket based on priority and urgency ranking. Once it's done, a separate judge
+agent reads its work and gives a verdict with a confidence score (a SWAG rn). Then I 
+take a look and determine whether to approve, send it back, discard, etc.
+
+## Experience
+
+I create a bunch of tickets in Vikunja and in the morning a bunch of completed work
+is sitting in the review queue for me.
+
+## Actions
 
 - [x] Reads `hermes:attempt` / `hermes:judge` / `hermes:control` / `hermes:session` machine comments from Vikunja
 - [x] Diff review via `git-range` when an attempt carries git pointers
@@ -75,6 +99,6 @@ python3 -m unittest tests/test_write_auth.py tests/test_serialize_judge.py \
 
 The Python lane needs `httpx` on the interpreter.
 
----
+## The Name
 
-The agents do the work. Corylus is where a human answers for it.
+It's the genus for Hazel trees and it sounds pretty. It's a family thing.
