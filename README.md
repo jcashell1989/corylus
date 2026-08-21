@@ -1,7 +1,7 @@
 <div align="center">
 
-<img src="static/assets/logo-mark-black.svg#gh-light-mode-only" alt="Corylus — a hazel branch with catkins" width="140">
-<img src="static/assets/logo-mark-white.svg#gh-dark-mode-only" alt="Corylus — a hazel branch with catkins" width="140">
+<img src="static/assets/lockup-black.svg#gh-light-mode-only" alt="Corylus" width="200">
+<img src="static/assets/lockup-white.svg#gh-dark-mode-only" alt="Corylus" width="200">
 
 # Corylus
 
