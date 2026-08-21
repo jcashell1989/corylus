@@ -1,7 +1,7 @@
 <div align="center">
 
-<img src="static/assets/lockup-black.svg#gh-light-mode-only" alt="Corylus" width="200">
-<img src="static/assets/lockup-white.svg#gh-dark-mode-only" alt="Corylus" width="200">
+<img src="static/assets/brake-traced.svg#gh-light-mode-only" alt="Woman operating a flax brake, after a nineteenth-century engraving" width="160">
+<img src="static/assets/brake-traced-cream.svg#gh-dark-mode-only" alt="Woman operating a flax brake, after a nineteenth-century engraving" width="160">
 
 # Corylus
 
