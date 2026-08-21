@@ -128,9 +128,11 @@ class WriteAuthTests(unittest.TestCase):
         self.assertEqual(r.status, 403)
         decide.assert_not_called()
 
-    def test_post_localhost_host_is_403(self) -> None:
+    def test_post_localhost_host_is_403_when_bound_elsewhere(self) -> None:
         c = self.conn()
-        with mock.patch.object(hr, "apply_decision", side_effect=VIKUNJA) as decide:
+        with mock.patch.object(hr, "HOST", "review.internal"), mock.patch.object(
+            hr, "apply_decision", side_effect=VIKUNJA
+        ) as decide:
             c.request(
                 "POST",
                 "/api/tasks/74/decide",

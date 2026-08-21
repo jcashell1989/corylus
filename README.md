@@ -1,6 +1,8 @@
-# Hermes Review
+# Corylus
 
-Catkin dashboard for judged Vikunja tasks. LAN / tailnet only.
+Corylus is the genus of the hazel; the dashboard's internal codename was Catkin —
+the hazel's flower — so the lineage is real. A review queue for judged agent work
+on Vikunja. Runs on loopback or a private network; not meant for the open internet.
 
 - Binds `localhost:8789` (override `HERMES_REVIEW_HOST` / `HERMES_REVIEW_PORT`)
 - Reads Vikunja + `hermes:attempt` / `hermes:judge` / `hermes:control` / `hermes:session` machine comments
@@ -8,7 +10,17 @@ Catkin dashboard for judged Vikunja tasks. LAN / tailnet only.
 - Writes dispositions back to Vikunja (labels + comments + `not_before`)
 - Activity / Metrics are pipeline ops views (health, problems, claims, agent.log API calls). Spend is an estimate from tokens × OpenRouter list prices, not billed.
 - Discuss column is a per-ticket Hermes session via loopback webui (`127.0.0.1:8787`). Browser never talks to `:8787`. Transcript is not copied to Vikunja.
-- Vikunja API token never leaves the box. Writes require a per-start `X-Hermes-Review-Token` (injected into the HTML) and `Host: localhost`. That is CSRF / rebinding protection, not a tailnet ACL: a peer who loads the page can scrape the token. `Host: localhost` is refused on purpose so this Mac can use the tailnet bind.
+- Vikunja API token never leaves the box. Writes require a per-start `X-Hermes-Review-Token` (injected into the HTML) and a `Host` header matching the configured bind host. That is CSRF / DNS-rebinding protection, not an ACL: a peer who can load the page can scrape the token. Bind to loopback or a network you control.
+
+## Configuration
+
+| Env var | Default | Meaning |
+|---|---|---|
+| `HERMES_REVIEW_HOST` | `localhost` | Bind address; the `Host` header must match it for writes |
+| `HERMES_REVIEW_PORT` | `8789` | Listen port |
+| `HERMES_REVIEW_TAILNET` | RFC 6598 CGNAT /10 | Network whose peers get host-relative Vikunja UI links |
+| `VIKUNJA_URL` | config, else `localhost:8788` | Vikunja API base |
+| `HERMES_WEBUI_URL` | `http://127.0.0.1:8787` | Loopback webui base for Discuss sessions |
 
 ```bash
 export XDG_RUNTIME_DIR=/run/user/$(id -u)

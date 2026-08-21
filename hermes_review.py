@@ -1,12 +1,12 @@
 #!/home/julian/.hermes/hermes-agent/venv/bin/python
-"""Hermes Review — Catkin dashboard on :8789.
+"""Corylus (internal codename: Catkin) — review queue for judged agent work, on :8789.
 
 Vikunja's API token stays on the box. The browser talks only to this process.
 
 Write routes require a per-start secret (X-Hermes-Review-Token) injected into
-the HTML. Host must match HERMES_REVIEW_HOST (the tailnet bind), not localhost.
-That blocks CSRF and DNS rebinding. A tailnet peer who loads the page can still
-scrape the token; that is the remaining threat.
+the HTML. The Host header must match HERMES_REVIEW_HOST (the configured bind
+host). That blocks CSRF and DNS rebinding. A peer who can load the page can
+still scrape the token; that is the remaining threat.
 """
 from __future__ import annotations
 
@@ -56,7 +56,7 @@ REVIEW_TOOLSETS_WITHOUT_REPO = list(CFG.discuss.get("toolsets_without_repo") or 
 WORKSPACE_WITHOUT_REPO = str(CFG.discuss.get("workspace_without_repo") or "")
 CTX_OPEN = "[[review-context]]"
 CTX_CLOSE = "[[/review-context]]"
-TAILNET = ipaddress.ip_network((0x64400000, 10))  # RFC 6598 CGNAT base /10
+TAILNET = ipaddress.ip_network(os.environ.get("HERMES_REVIEW_TAILNET") or ipaddress.ip_network((0x64400000, 10)))  # default: RFC 6598 CGNAT /10
 DISPOSITION_PREFIX = "Hermes Review:"
 MACHINE_MARKERS = (
     "<!-- hermes:",
