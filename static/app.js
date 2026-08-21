@@ -1,4 +1,4 @@
-/* Hermes Review — Catkin UI. Data from /api/board. Discuss is Vikunja comments. */
+/* Corylus (internal codename: Catkin). Data from /api/board. Discuss is Vikunja comments. */
 const INK = "#2B241B", MUTED = "#5A5347", GOLD = "#7A6020", GREEN = "#3D6B3E";
 const CLAY = "#8B3232", SLATE = "#3A5563", PARCH = "#F5F0E8", SURF = "#EAE3D6";
 const VERDICTS = {
