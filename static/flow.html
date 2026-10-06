@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Project flow · Corylus</title>
+<link rel="icon" type="image/svg+xml" href="/static/assets/favicon.svg">
+<link rel="stylesheet" href="/static/flow.css">
+<script defer src="/static/vendor/elk.bundled.js"></script>
+<script defer src="/static/flow_model.js"></script>
+<script defer src="/static/flow.js"></script>
+</head>
+<body>
+<div id="flow-app">
+<header class="app-header"><div class="brand"><div><h1>Corylus <span>Project flow</span></h1></div></div><div class="header-right"><span id="sample-badge" class="badge sample" hidden>Sample data</span><span id="updated">Connecting…</span><button id="refresh" type="button">↻ Refresh</button></div></header>
+<form id="filters" class="filters" role="search" aria-label="Filter tickets"><label>Project<select id="project" aria-label="Project"></select></label><label>Epic<select id="epic"><option value="">All epics</option></select></label><label>Status<select id="status"><option value="">All statuses</option></select></label><label>Priority<select id="priority"><option value="">All priorities</option></select></label><label class="search-label">Search<input id="search" type="search" placeholder="Search tickets…" autocomplete="off"></label><button id="clear-filters" type="button">Clear filters</button></form>
+<div id="messages" aria-live="polite" hidden></div>
+<main id="workspace">
+<section id="graph-pane" aria-label="Ticket dependency graph">
+<div class="pane-heading"><div><h2>Dependency map</h2><span id="graph-summary" class="muted">Loading tickets…</span></div><div class="graph-controls"><span class="legend"><i></i> prerequisite → dependent</span><button id="zoom-out" aria-label="Zoom out">−</button><span id="zoom-label">100%</span><button id="zoom-in" aria-label="Zoom in">+</button><button id="fit">Fit view</button></div></div>
+<div class="graph-body"><div id="graph-viewport" tabindex="0" aria-label="Dependency map. Drag to pan; use plus and minus to zoom, F to fit, arrow keys to select tickets."><svg id="graph-svg" xmlns="http://www.w3.org/2000/svg" aria-label="Ticket dependencies"><defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L8,4 L0,8" fill="#8e897e"/></marker></defs><g id="graph-scene"></g></svg><div id="graph-empty" class="graph-empty" hidden></div><span class="canvas-hint">Drag to pan · scroll to zoom · F to fit</span></div><aside id="independent" aria-label="Independent tickets"><div class="shelf-heading"><h3>Independent tickets <span id="independent-count">0</span></h3><p>No dependency connections</p></div><div id="independent-list"></div></aside></div>
+</section>
+<div id="divider" role="separator" aria-orientation="horizontal" aria-label="Resize graph and table" aria-valuemin="20" aria-valuemax="80" aria-valuenow="58" tabindex="0"><span></span></div>
+<section id="table-pane" aria-label="Ticket details"><div class="pane-heading"><div><h2>Tickets <span id="ticket-count" class="count">0</span></h2><span id="table-summary" class="muted">Select a ticket to see its details</span></div><span class="muted">Read-only · td is the source of truth</span></div><div class="table-scroll"><table><caption class="sr-only">Tickets in the selected project. Select a row to inspect its description and acceptance criteria.</caption><thead><tr><th aria-sort="ascending"><button data-sort="id">Ticket ↕</button></th><th><button data-sort="title">Title ↕</button></th><th><button data-sort="type">Type ↕</button></th><th><button data-sort="status">Status ↕</button></th><th><button data-sort="priority">Priority ↕</button></th><th>Epic</th><th>Prerequisites</th><th><button data-sort="updated_at">Updated ↕</button></th></tr></thead><tbody id="ticket-rows"></tbody></table><div id="table-empty" class="empty-state" hidden></div></div></section>
+</main>
+</div>
+</body>
+</html>

@@ -75,6 +75,25 @@ internet.
 
 ## Running
 
+### td project flow
+
+The dependency viewer runs independently of the legacy review queue:
+
+```bash
+python3 td_flow.py
+```
+
+Open `http://127.0.0.1:8791/` for a DAG above a linked ticket table. Epic
+outlines show membership; connected tickets without an epic stay on the
+canvas, and tickets with no dependency connections appear in a separate shelf.
+The viewer reads the current project's `td` tracker. It does not change tickets.
+Use `?demo=1` for the explicitly labeled mockup sample.
+
+See [td project flow](docs/td-project-flow.md) for multiple projects, controls,
+checks and the `dev`-to-`apps` hosting boundary.
+
+### Legacy Vikunja review queue
+
 ```bash
 python3 hermes_review.py
 ```

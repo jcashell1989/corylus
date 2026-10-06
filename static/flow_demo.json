@@ -1,0 +1,257 @@
+{
+  "project": {
+    "id": "corylus-demo",
+    "name": "Corylus \u00b7 example"
+  },
+  "tickets": [
+    {
+      "id": "td-101",
+      "title": "Preflight",
+      "type": "task",
+      "status": "closed",
+      "priority": "P1",
+      "parent_id": null,
+      "epic_id": null,
+      "description": "Preflight for the Corylus project-flow building block. This is sample data for UI demonstration.",
+      "acceptance": "The intended workflow is verified and documented. Changes are ready for independent review.",
+      "labels": [
+        "sample"
+      ],
+      "updated_at": "2026-10-05T20:00:00Z",
+      "depends_on": []
+    },
+    {
+      "id": "td-102",
+      "title": "Define schema",
+      "type": "task",
+      "status": "closed",
+      "priority": "P1",
+      "parent_id": "td-backend",
+      "epic_id": "td-backend",
+      "description": "Define schema for the Corylus project-flow building block. This is sample data for UI demonstration.",
+      "acceptance": "The intended workflow is verified and documented. Changes are ready for independent review.",
+      "labels": [
+        "sample"
+      ],
+      "updated_at": "2026-10-05T20:00:00Z",
+      "depends_on": [
+        "td-101"
+      ]
+    },
+    {
+      "id": "td-103",
+      "title": "Build API",
+      "type": "task",
+      "status": "in_progress",
+      "priority": "P1",
+      "parent_id": "td-backend",
+      "epic_id": "td-backend",
+      "description": "Build API for the Corylus project-flow building block. This is sample data for UI demonstration.",
+      "acceptance": "The intended workflow is verified and documented. Changes are ready for independent review.",
+      "labels": [
+        "sample"
+      ],
+      "updated_at": "2026-10-05T20:00:00Z",
+      "depends_on": [
+        "td-102"
+      ]
+    },
+    {
+      "id": "td-104",
+      "title": "Authentication",
+      "type": "task",
+      "status": "open",
+      "priority": "P1",
+      "parent_id": "td-backend",
+      "epic_id": "td-backend",
+      "description": "Authentication for the Corylus project-flow building block. This is sample data for UI demonstration.",
+      "acceptance": "The intended workflow is verified and documented. Changes are ready for independent review.",
+      "labels": [
+        "sample"
+      ],
+      "updated_at": "2026-10-05T20:00:00Z",
+      "depends_on": [
+        "td-103"
+      ]
+    },
+    {
+      "id": "td-105",
+      "title": "Ticket table",
+      "type": "task",
+      "status": "open",
+      "priority": "P2",
+      "parent_id": "td-interface",
+      "epic_id": "td-interface",
+      "description": "Ticket table for the Corylus project-flow building block. This is sample data for UI demonstration.",
+      "acceptance": "The intended workflow is verified and documented. Changes are ready for independent review.",
+      "labels": [
+        "sample"
+      ],
+      "updated_at": "2026-10-05T20:00:00Z",
+      "depends_on": [
+        "td-103"
+      ]
+    },
+    {
+      "id": "td-106",
+      "title": "DAG canvas",
+      "type": "task",
+      "status": "open",
+      "priority": "P2",
+      "parent_id": "td-interface",
+      "epic_id": "td-interface",
+      "description": "DAG canvas for the Corylus project-flow building block. This is sample data for UI demonstration.",
+      "acceptance": "The intended workflow is verified and documented. Changes are ready for independent review.",
+      "labels": [
+        "sample"
+      ],
+      "updated_at": "2026-10-05T20:00:00Z",
+      "depends_on": [
+        "td-105"
+      ]
+    },
+    {
+      "id": "td-107",
+      "title": "Smoke tests",
+      "type": "task",
+      "status": "open",
+      "priority": "P1",
+      "parent_id": null,
+      "epic_id": null,
+      "description": "Smoke tests for the Corylus project-flow building block. This is sample data for UI demonstration.",
+      "acceptance": "The intended workflow is verified and documented. Changes are ready for independent review.",
+      "labels": [
+        "sample"
+      ],
+      "updated_at": "2026-10-05T20:00:00Z",
+      "depends_on": [
+        "td-104",
+        "td-106"
+      ]
+    },
+    {
+      "id": "td-108",
+      "title": "Update README",
+      "type": "task",
+      "status": "open",
+      "priority": "P3",
+      "parent_id": null,
+      "epic_id": null,
+      "description": "Update README for the Corylus project-flow building block. This is sample data for UI demonstration.",
+      "acceptance": "The intended workflow is verified and documented. Changes are ready for independent review.",
+      "labels": [
+        "sample"
+      ],
+      "updated_at": "2026-10-05T20:00:00Z",
+      "depends_on": []
+    },
+    {
+      "id": "td-109",
+      "title": "Add keyboard shortcuts",
+      "type": "task",
+      "status": "open",
+      "priority": "P3",
+      "parent_id": null,
+      "epic_id": null,
+      "description": "Add keyboard shortcuts for the Corylus project-flow building block. This is sample data for UI demonstration.",
+      "acceptance": "The intended workflow is verified and documented. Changes are ready for independent review.",
+      "labels": [
+        "sample"
+      ],
+      "updated_at": "2026-10-05T20:00:00Z",
+      "depends_on": []
+    },
+    {
+      "id": "td-110",
+      "title": "Polish empty states",
+      "type": "task",
+      "status": "open",
+      "priority": "P3",
+      "parent_id": null,
+      "epic_id": null,
+      "description": "Polish empty states for the Corylus project-flow building block. This is sample data for UI demonstration.",
+      "acceptance": "The intended workflow is verified and documented. Changes are ready for independent review.",
+      "labels": [
+        "sample"
+      ],
+      "updated_at": "2026-10-05T20:00:00Z",
+      "depends_on": []
+    },
+    {
+      "id": "td-backend",
+      "title": "Backend",
+      "type": "epic",
+      "status": "in_progress",
+      "priority": "P1",
+      "parent_id": null,
+      "epic_id": null,
+      "description": "Backend work for the project-flow viewer. This is a sample epic.",
+      "acceptance": "All child tickets meet their acceptance criteria.",
+      "labels": [
+        "sample"
+      ],
+      "updated_at": "2026-10-05T20:00:00Z",
+      "depends_on": []
+    },
+    {
+      "id": "td-interface",
+      "title": "Interface",
+      "type": "epic",
+      "status": "in_progress",
+      "priority": "P1",
+      "parent_id": null,
+      "epic_id": null,
+      "description": "Interface work for the project-flow viewer. This is a sample epic.",
+      "acceptance": "All child tickets meet their acceptance criteria.",
+      "labels": [
+        "sample"
+      ],
+      "updated_at": "2026-10-05T20:00:00Z",
+      "depends_on": []
+    }
+  ],
+  "epics": [
+    {
+      "id": "td-backend",
+      "title": "Backend",
+      "parent_id": null
+    },
+    {
+      "id": "td-interface",
+      "title": "Interface",
+      "parent_id": null
+    }
+  ],
+  "edges": [
+    {
+      "source": "td-101",
+      "target": "td-102"
+    },
+    {
+      "source": "td-102",
+      "target": "td-103"
+    },
+    {
+      "source": "td-103",
+      "target": "td-104"
+    },
+    {
+      "source": "td-103",
+      "target": "td-105"
+    },
+    {
+      "source": "td-105",
+      "target": "td-106"
+    },
+    {
+      "source": "td-104",
+      "target": "td-107"
+    },
+    {
+      "source": "td-106",
+      "target": "td-107"
+    }
+  ],
+  "warnings": [],
+  "updated_at": "2026-10-05T20:00:00Z"
+}

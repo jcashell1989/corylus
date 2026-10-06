@@ -3,3 +3,6 @@ __pycache__/
 .DS_Store
 .todos/
 .ruff_cache/
+.venv/
+node_modules/
+test-results/
