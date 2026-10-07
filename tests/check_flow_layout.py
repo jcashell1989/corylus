@@ -200,6 +200,35 @@ def check_fixture(browser, screenshots):
                 assert contains(root, bounds(page, epic_selector(key)))
         page.screenshot(path=str(screenshots / "horizontal-nested.png"), full_page=True)
         print("PASS horizontal epic-local dependencies across nested boxes and disconnected local blocks")
+    diamond = payload([
+        ticket("E", kind="epic"), ticket("a", parent="E"),
+        ticket("b", parent="E", dependencies=["a", "n"]),
+        ticket("N", kind="epic", parent="E"),
+        ticket("n", parent="N", dependencies=["a"]),
+    ])
+    with server_for(diamond) as url:
+        for width in (1400, 450):
+            page.set_viewport_size({"width": width, "height": 1050})
+            page.goto(url)
+            expect(page.locator(".ticket-row")).to_have_count(5)
+            wait_graph(page)
+            assert not page.evaluate("data => FlowModel.prepare(data).hasCycle", diamond)
+            e, n = (bounds(page, epic_selector(key)) for key in ("E", "N"))
+            assert contains(e, n)
+            assert contains(n, bounds(page, card_selector("n")))
+            for key in ("a", "b"):
+                assert contains(e, bounds(page, card_selector(key)))
+            expect(page.locator(".graph-edge")).to_have_count(3)
+            for source, target in (("a", "b"), ("a", "n"), ("n", "b")):
+                expect(page.locator(
+                    f'.graph-edge[data-source="{source}"][data-target="{target}"]',
+                )).to_have_count(1)
+                assert bounds(page, card_selector(source))["x"] < bounds(page, card_selector(target))["x"], (
+                    f"Acyclic diamond {source} -> {target} must flow right at width {width}")
+            direction = direction_metrics(page, diamond)
+            assert direction["shared_epic"] == {"right": 3, "left": 0, "vertical": 0}, direction
+            page.screenshot(path=str(screenshots / f"horizontal-diamond-{width}.png"), full_page=True)
+        print("PASS acyclic outer/nested diamond, a.x < n.x < b.x, containment and all three routes at 1400/450")
     umbrella = payload([
         ticket("umbrella", kind="epic"),
         ticket("a", kind="epic", parent="umbrella"), ticket("a1", parent="a"),
@@ -251,6 +280,12 @@ def direction_metrics(page, data):
     """Measure card and epic endpoints, including links to nested epic boxes."""
     return page.evaluate("""data => {
       const membership=FlowModel.prepare(data).membership;
+      const ancestors=id=>{
+        const result=new Set();
+        let epic=membership.get(id);
+        while(epic && !result.has(epic)) {result.add(epic);epic=membership.get(epic);}
+        return result;
+      };
       const positions=new Map();
       for (const node of document.querySelectorAll('.node-card, .epic-container')) {
         const shape=node.classList.contains('epic-container') ? node.querySelector('.epic-boundary') : node;
@@ -260,12 +295,17 @@ def direction_metrics(page, data):
       const edges=data.edges.filter(e=>positions.has(e.source)&&positions.has(e.target)).map(e=>{
         const a=positions.get(e.source), b=positions.get(e.target);
         const epic=membership.get(e.source);
+        const sourceAncestors=ancestors(e.source), targetAncestors=ancestors(e.target);
+        // Flattened umbrella frames are page rows, where wrapping is intentional.
+        const sharedEpic=[...sourceAncestors].find(id=>positions.has(id)&&targetAncestors.has(id));
         return {...e,epic:epic||null,same_epic:Boolean(epic && epic===membership.get(e.target)),
+          shared_epic:sharedEpic||null,
           direction:b.x>a.x+.01 ? 'right' : b.x<a.x-.01 ? 'left' : 'vertical',
           source_x:a.x,target_x:b.x,source_y:a.y,target_y:b.y};
       });
       const counts=items=>Object.fromEntries(['right','left','vertical'].map(d=>[d,items.filter(e=>e.direction===d).length]));
       return {same_epic:counts(edges.filter(e=>e.same_epic)),
+        shared_epic:counts(edges.filter(e=>e.shared_epic)),
         other:counts(edges.filter(e=>!e.same_epic)),same_epic_edges:edges.filter(e=>e.same_epic)};
     }""", data)
 
@@ -359,9 +399,9 @@ def compare_snapshot(browser, path, baseline_ref, screenshots, focus_epic=None):
     for phase in ("before", "after"):
         del summary[phase]["dependency_direction"]["same_epic_edges"]
     print(json.dumps(summary, indent=2))
-    same_epic = after["dependency_direction"]["same_epic"]
-    assert same_epic["right"] > 0, "Real tracker must exercise dependencies within epics"
-    assert same_epic["left"] == same_epic["vertical"] == 0, "Epic-local prerequisites must flow left to right"
+    shared_epic = after["dependency_direction"]["shared_epic"]
+    assert shared_epic["right"] > 0, "Real tracker must exercise dependencies within epics"
+    assert shared_epic["left"] == shared_epic["vertical"] == 0, "Shared-ancestor prerequisites must flow left to right"
     assert after["area"] <= before["area"] * 1.05, "Real tracker must stay compact (maximum 5% area growth)"
 
 

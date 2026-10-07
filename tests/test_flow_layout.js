@@ -331,6 +331,27 @@ test('dependencies through a nested epic keep disconnected local components in h
   }
 });
 
+test('direct outer dependency and nested detour keep an acyclic diamond horizontal', async () => {
+  const view = model.prepare({
+    tickets: [
+      ticket('E', { type: 'epic' }),
+      ticket('a', { parent_id: 'E' }), ticket('b', { parent_id: 'E' }),
+      ticket('N', { type: 'epic', parent_id: 'E' }), ticket('n', { parent_id: 'N' })
+    ],
+    edges: [
+      { source: 'a', target: 'b' }, { source: 'a', target: 'n' },
+      { source: 'n', target: 'b' }
+    ]
+  });
+  assert.equal(view.hasCycle, false);
+  for (const width of [1400, 450]) {
+    const layout = await model.layout(view.graph, elk, width);
+    assertTopology(view, layout);
+    assertHorizontal(layout, view.visibleEdges.map(edge => [edge.source, edge.target]));
+    assert.equal(edgesOf(layout).length, 3, 'All three diamond routes must survive');
+  }
+});
+
 test('cycles across epic boundaries remain routed and visible in the real ELK layout', async () => {
   const view = model.prepare({
     tickets: [

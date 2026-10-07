@@ -189,16 +189,67 @@
       const links = allEdges.filter(e => leafById.has(e.sources[0]) && leafById.has(e.targets[0]));
       const adjacent = new Map(leaves.map(n => [n.id, []]));
       links.forEach(e => { adjacent.get(e.sources[0]).push(e.targets[0]); adjacent.get(e.targets[0]).push(e.sources[0]); });
-      const seen = new Set(), components = [];
+      const seen = new Set();
+      let components = [];
       leaves.forEach(n => {
         if (seen.has(n.id)) return;
         const ids = [n.id]; seen.add(n.id);
         for (let i = 0; i < ids.length; i++) adjacent.get(ids[i]).forEach(id => { if (!seen.has(id)) { seen.add(id); ids.push(id); } });
         components.push(ids);
       });
+      if (container.id !== 'root' && boxes.length) {
+        // Contracting a local DAG can create a cycle through a nested box:
+        // a -> b plus a -> N -> b becomes block(a,b) -> N -> block(a,b).
+        // Refine only components in such a cycle; other DAGs retain their
+        // compact ELK layout instead of turning every leaf into a wide row.
+        const owner = new Map(boxes.map(n => [n.id, n.id]));
+        components.forEach((ids, i) => ids.forEach(id => owner.set(id, i)));
+        const outgoing = new Map([...owner.values()].map(id => [id, new Set()]));
+        const incoming = new Map([...outgoing.keys()].map(id => [id, new Set()]));
+        allEdges.forEach(e => {
+          const a = owner.get(childOf(e.sources[0], container.id));
+          const b = owner.get(childOf(e.targets[0], container.id));
+          if (a !== b && outgoing.has(a) && outgoing.has(b)) {
+            outgoing.get(a).add(b); incoming.get(b).add(a);
+          }
+        });
+        function reachable(id, neighbors) {
+          const visited = new Set([id]), queue = [id];
+          for (let i = 0; i < queue.length; i++) neighbors.get(queue[i]).forEach(next => {
+            if (!visited.has(next)) { visited.add(next); queue.push(next); }
+          });
+          return visited;
+        }
+        const split = new Set();
+        boxes.forEach(box => {
+          const before = reachable(box.id, incoming), after = reachable(box.id, outgoing);
+          before.forEach(id => { if (typeof id === 'number' && after.has(id)) split.add(id); });
+        });
+        if (split.size) {
+          // Each slice occupies the interval between nested boxes in a
+          // topological order of the uncontracted children. Local edges stay
+          // inside a slice when possible; edges crossing slices route below.
+          const slots = new Map();
+          let slot = 0;
+          ordered(nodes, container.id).forEach(n => {
+            if (n.children) slot++;
+            else slots.set(n.id, slot);
+          });
+          components = components.flatMap((ids, i) => {
+            if (!split.has(i)) return [ids];
+            const slices = new Map();
+            ids.forEach(id => {
+              const key = slots.get(id);
+              if (!slices.has(key)) slices.set(key, []);
+              slices.get(key).push(id);
+            });
+            return [...slices.values()];
+          });
+        }
+      }
       const laidBoxes = await Promise.all(boxes.map(n => place(n, width - padding * 2)));
       const blocks = await Promise.all(components.map(async ids => {
-        const members = new Set(ids), edges = links.filter(e => members.has(e.sources[0]));
+        const members = new Set(ids), edges = links.filter(e => members.has(e.sources[0]) && members.has(e.targets[0]));
         edges.forEach(e => localEdges.add(e.id));
         if (ids.length === 1 && !edges.length) return { ...leafById.get(ids[0]), members: ids };
         const laid = await elk.layout({ id: `dag:${ids[0]}`, layoutOptions: { ...LAYOUT_OPTIONS, 'elk.hierarchyHandling': 'SEPARATE_CHILDREN', 'elk.padding': '[top=0,left=0,bottom=0,right=0]' }, children: ids.map(id => ({ ...leafById.get(id) })), edges: edges.map(e => ({ ...e })) });
