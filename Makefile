@@ -9,8 +9,9 @@ test:
 	npm test
 
 lint:
-	$(PYTHON) -m ruff check td_flow.py tests/test_td_flow.py tests/check_flow_browser.py tests/run_python_tests.py
+	$(PYTHON) -m ruff check td_flow.py tests/test_td_flow.py tests/check_flow_browser.py tests/check_flow_layout.py tests/run_python_tests.py tests/conftest.py
 	npm run lint
 
 browser-test:
 	$(PYTHON) tests/check_flow_browser.py
+	$(PYTHON) tests/check_flow_layout.py

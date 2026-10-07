@@ -1,4 +1,5 @@
 # The flow server itself needs only Python's standard library and td.
 httpx>=0.27,<1
+pytest==9.1.1
 ruff==0.16.10
 playwright==1.55.0

@@ -5,6 +5,7 @@ import os
 import sys
 import tempfile
 import unittest
+from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import patch
 
@@ -12,7 +13,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 
-def main():
+@contextmanager
+def fixture_environment():
     # The legacy module imports Hermes config at module load. Give it a known,
     # non-secret config and an empty temporary home, keeping production intact.
     import vikunja_config
@@ -35,8 +37,13 @@ def main():
             patch.dict(os.environ, {"HERMES_HOME": temporary}),
             patch.object(vikunja_config, "load", return_value=config),
         ):
-            suite = unittest.defaultTestLoader.discover(str(ROOT / "tests"), pattern="test_*.py")
-            result = unittest.TextTestRunner(verbosity=1).run(suite)
+            yield config
+
+
+def main():
+    with fixture_environment():
+        suite = unittest.defaultTestLoader.discover(str(ROOT / "tests"), pattern="test_*.py")
+        result = unittest.TextTestRunner(verbosity=1).run(suite)
     return 0 if result.wasSuccessful() else 1
 
 
