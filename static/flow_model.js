@@ -5,6 +5,22 @@
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   'use strict';
   const NODE_WIDTH = 184, NODE_HEIGHT = 100;
+  // Apply compaction within epic boxes as well as across the whole graph.
+  // Cross-epic dependencies otherwise leave long, mostly empty compound layers.
+  const LAYOUT_OPTIONS = {
+    'elk.algorithm': 'layered',
+    'elk.direction': 'RIGHT',
+    'elk.hierarchyHandling': 'INCLUDE_CHILDREN',
+    'elk.edgeRouting': 'ORTHOGONAL',
+    'elk.layered.nodePlacement.strategy': 'NETWORK_SIMPLEX',
+    'elk.layered.compaction.postCompaction.strategy': 'EDGE_LENGTH',
+    'elk.spacing.nodeNode': '16',
+    'elk.layered.spacing.nodeNodeBetweenLayers': '16',
+    'elk.spacing.edgeNode': '8',
+    'elk.spacing.edgeEdge': '6',
+    'elk.layered.spacing.edgeNodeBetweenLayers': '8',
+    'elk.layered.spacing.edgeEdgeBetweenLayers': '6'
+  };
   function prepare(data, filters = {}) {
     const tickets = (data.tickets || []).map(t => ({ ...t, id: String(t.id) }));
     const byId = new Map(tickets.map(t => [t.id, t]));
@@ -86,8 +102,8 @@
     graphNodes.forEach(t => { const epic = membership.get(t.id); if (epic) { if (!epicGroups.has(epic)) epicGroups.set(epic, []); epicGroups.get(epic).push(t); } });
     const node = t => ({ id: t.id, width: NODE_WIDTH, height: NODE_HEIGHT });
     const children = graphNodes.filter(t => !membership.get(t.id)).map(node);
-    epicGroups.forEach((members, id) => children.push({ id: `epic:${id}`, children: members.map(node), layoutOptions: { 'elk.padding': '[top=44,left=12,bottom=16,right=12]' } }));
-    const graph = { id: 'root', layoutOptions: { 'elk.algorithm': 'layered', 'elk.direction': 'RIGHT', 'elk.hierarchyHandling': 'INCLUDE_CHILDREN', 'elk.edgeRouting': 'ORTHOGONAL', 'elk.spacing.nodeNode': '24', 'elk.layered.spacing.nodeNodeBetweenLayers': '20', 'elk.padding': '[top=16,left=12,bottom=16,right=12]' }, children, edges: visibleEdges.map((e, i) => ({ id: `edge:${i}`, sources: [e.source], targets: [e.target] })) };
+    epicGroups.forEach((members, id) => children.push({ id: `epic:${id}`, children: members.map(node), layoutOptions: { ...LAYOUT_OPTIONS, 'elk.padding': '[top=44,left=12,bottom=16,right=12]' } }));
+    const graph = { id: 'root', layoutOptions: { ...LAYOUT_OPTIONS, 'elk.padding': '[top=16,left=12,bottom=16,right=12]' }, children, edges: visibleEdges.map((e, i) => ({ id: `edge:${i}`, sources: [e.source], targets: [e.target] })) };
     return { tickets, byId, epics, membership, membershipVisits, prerequisites, connected, visible, connectedTickets, independent, edges, visibleEdges, hiddenConnections, graph, warnings: [...new Set(warnings)], hasCycle };
   }
   function sortTickets(tickets, field = 'id', direction = 1) {

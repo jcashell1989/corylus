@@ -74,6 +74,12 @@ def shelf_card(page, ticket_id):
     return page.locator(f'#independent-list [data-ticket="{ticket_id}"]')
 
 
+def graph_area(page):
+    return page.locator("#graph-scene").evaluate(
+        "scene => { const bounds = scene.getBBox(); return bounds.width * bounds.height; }"
+    )
+
+
 def check_containment(page, ids):
     boxes = page.locator(".epic-boundary").evaluate_all(
         "nodes => nodes.map(n => {const r=n.getBoundingClientRect();"
@@ -118,6 +124,7 @@ def check_browser(base_url, ids, binary, source, screenshots, executable):
         expect(page.locator(".graph-edge")).to_have_count(7)
         expect(page.locator("#sample-badge")).to_be_hidden()
         check_containment(page, ids)
+        full_graph_area = graph_area(page)
         expect(shelf_card(page, ids["preflight"])).to_have_count(0)
         expect(shelf_card(page, ids["independent_member"])).to_have_count(1)
         expect(page.locator("#independent-count")).to_have_text("4")
@@ -143,6 +150,7 @@ def check_browser(base_url, ids, binary, source, screenshots, executable):
         expect(page.locator(".ticket-row")).to_have_count(1)
         expect(shelf_card(page, ids["api"])).to_have_count(0)
         expect(page.locator(".node-context")).to_contain_text("hidden")
+        assert graph_area(page) < full_graph_area * 0.5, "Search must shrink layout bounds"
         graph_node(page, ids["api"]).click()
         page.locator("#refresh").click()
         expect(page.locator("#refresh")).to_be_enabled()
@@ -179,6 +187,7 @@ def check_browser(base_url, ids, binary, source, screenshots, executable):
         page.locator('#status-options input[value="open"]').uncheck()
         expect(page.locator(".node-card")).to_have_count(1)
         expect(page.locator(".ticket-row")).to_have_count(2)
+        assert graph_area(page) < full_graph_area * 0.5, "Status filters must relayout the graph"
         expect(page.locator("#ticket-count")).to_have_text("2")
         expect(page.locator("#independent-count")).to_have_text("1")
         expect(page.locator("#graph-summary")).to_have_text("1 connected · 1 epics · 0 links")

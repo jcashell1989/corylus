@@ -3,7 +3,7 @@
   "private": true,
   "scripts": {
     "test": "node --test tests/test_*.js",
-    "lint": "eslint static/flow*.js tests/test_flow_model.js"
+    "lint": "eslint static/flow*.js tests/test_flow_*.js"
   },
   "devDependencies": {
     "eslint": "10.12.0"
