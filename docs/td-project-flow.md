@@ -51,6 +51,15 @@ tracker data. Sample mode is never a fallback when a live tracker fails.
 - Epics also remain available as records in the table. Hierarchical membership
   resolves through intermediate parent tickets to the nearest epic.
 
+The layout uses network-simplex node placement, edge-length post-compaction,
+and tighter card/edge spacing in both the root graph and each epic. It retains
+left-to-right flow and orthogonal dependency arrows. Disconnected components
+use ELK's existing component packing. Only matching cards and edges enter the
+layout; changing filters lays out and fits the smaller graph. Connected cards
+whose neighbors are hidden remain on the canvas with hidden-link indicators.
+The [Homelab comparison](evidence/td-8a2b90/README.md) records measured bounds,
+routed edge lengths, and before/after Chromium screenshots.
+
 Selecting a card or table row highlights the same ticket in both panes and
 reveals its description and acceptance criteria. Project, epic, status, priority
 and text filters apply to both views. The table supports column sorting.
