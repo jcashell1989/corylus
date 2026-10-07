@@ -1,7 +1,6 @@
 """TD source-contract, bounded execution and HTTP boundary tests."""
 import http.client
 import json
-import shutil
 import subprocess
 import tempfile
 import threading
@@ -44,6 +43,25 @@ class NormalizeTests(unittest.TestCase):
         self.assertEqual(payload["warnings"], [])
         self.assertNotIn("/private/project", json.dumps(payload))
 
+    def test_nested_epic_membership_keeps_closed_dependency(self):
+        rows = [
+            record("A", type="epic"),
+            dependency(record("B", type="epic", parent_id="A"), "D"),
+            record("C", parent_id="B"),
+            record("A-task", parent_id="A"),
+            record("D", status="closed"),
+        ]
+        payload = flow.normalize_export(rows, self.project)
+        by_id = {issue["id"]: issue for issue in payload["tickets"]}
+        self.assertIsNone(by_id["A"]["epic_id"])
+        self.assertEqual(by_id["B"]["epic_id"], "A")
+        self.assertEqual(by_id["C"]["epic_id"], "B")
+        self.assertEqual(by_id["A-task"]["epic_id"], "A")
+        self.assertEqual(by_id["B"]["depends_on"], ["D"])
+        self.assertEqual(by_id["D"]["status"], "closed")
+        self.assertEqual(payload["edges"], [{"source": "D", "target": "B"}])
+        self.assertEqual(payload["warnings"], [])
+
     def test_deleted_closed_orphans_and_cycles_remain_visible(self):
         a = dependency(record("td-a", parent_id="td-b"), "td-b")
         b = dependency(record("td-b", parent_id="td-a"), "td-a")
@@ -76,7 +94,7 @@ class NormalizeTests(unittest.TestCase):
 
 
 class SourceTests(unittest.TestCase):
-    @unittest.skipUnless(shutil.which("td"), "TD executable unavailable")
+    @unittest.skip("Julian's 2026-10-07 restriction forbids running td export; scheduled exports own that operation")
     def test_real_td_export_schema_direction_and_deletion(self):
         with tempfile.TemporaryDirectory(prefix="td-flow-integration-") as directory:
             def td(*args):

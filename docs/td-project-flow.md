@@ -41,8 +41,8 @@ tracker data. Sample mode is never a fallback when a live tracker fails.
 - Arrows point from a prerequisite to the ticket that depends on it.
 - Epic outlines describe membership. They do not imply dependency edges.
 - Connected tickets without an epic remain on the canvas outside epic outlines.
-- Tickets with no incoming **and** no outgoing dependency edges appear in the
-  independent shelf. Epic membership is retained there as grouping.
+- Tickets with no incoming **and** no outgoing dependency edges and no epic
+  appear in the independent shelf. Unlinked epic members stay inside their box.
 - A ticket with no prerequisites but with dependents is a starting node in the
   graph. It is not independent.
 - Classification uses the complete project graph. Filters do not move a
@@ -51,14 +51,21 @@ tracker data. Sample mode is never a fallback when a live tracker fails.
 - Epics also remain available as records in the table. Hierarchical membership
   resolves through intermediate parent tickets to the nearest epic.
 
-The layout uses network-simplex node placement, edge-length post-compaction,
-and tighter card/edge spacing in both the root graph and each epic. It retains
-left-to-right flow and orthogonal dependency arrows. Disconnected components
-use ELK's existing component packing. Only matching cards and edges enter the
-layout; changing filters lays out and fits the smaller graph. Connected cards
-whose neighbors are hidden remain on the canvas with hidden-link indicators.
-The [Homelab comparison](evidence/td-8a2b90/README.md) records measured bounds,
-routed edge lengths, and before/after Chromium screenshots.
+Each epic lays out its own dependency components with ELK's compact layered
+layout. Epic boxes and nested epic boxes top-align in rows, ordered by their
+cross-epic dependencies, and wrap at the graph viewport width. Cross-epic
+arrows meet box boundaries. A root with at least two epic children and a
+majority of epic children becomes the page frame; its descendants retain their
+nested boxes and table membership. Empty epics remain selectable boxes.
+
+Automatic framing fits the graph width and starts at the top, keeping wrapped
+rows readable with zoom and pan. **Fit view** retains the complete overview.
+Changing filters lays out and frames the smaller graph. Connected cards whose
+neighbors are hidden retain hidden-link indicators. The
+[nested-epic comparison](evidence/td-dd75d8/README.md) records scheduled homelab
+snapshot bounds, layout timings, and before/after Chromium screenshots. The
+[earlier compaction comparison](evidence/td-8a2b90/README.md) records the retained
+ELK compaction regression.
 
 Selecting a card or table row highlights the same ticket in both panes and
 reveals its description and acceptance criteria. Project, epic, status, priority
@@ -115,7 +122,8 @@ make browser-test PYTHON=.venv/bin/python
 ```
 
 The Python development dependencies include `httpx` for the legacy tests,
-Ruff for the new feature's Python code, and Playwright for browser checks.
+pytest for direct suite runs, Ruff for the new feature's Python code, and
+Playwright for browser checks.
 ESLint checks the new application scripts and model tests. Existing review
 tests run as regressions with fixture configuration and an empty temporary
 Hermes home; the runner never reads a live Vikunja config or credential file.
@@ -128,15 +136,19 @@ responsive layout and error handling. Use `--help` on the browser-check script
 for executable and screenshot options. Browser dependencies are development
 tools; they are not needed to serve the viewer.
 
-The implementation passed 71 Python tests, 47 JavaScript tests, Ruff and
-ESLint, plus Chromium checks against real temporary `td` projects. The browser
+The nested-epic revision passes 71 Python tests (one real-export integration
+test is skipped under the scheduled-export restriction), 66 JavaScript tests,
+Ruff, ESLint, and both Chromium suites. Browser fixture readers use `td list`,
+`td show`, and `td dep`; they never run `td export`. The browser
 checks cover project switching and URL reload, initial and refresh failures,
 keyboard selection, cyclic and orphan relationships, literal ticket content,
 and the absence of external network requests. Desktop, laptop and mobile
 screenshots are saved under `test-results/`; mobile checks establish layout
 visibility, not physical-device validation.
 
-Independent source review found no outstanding issues after fixes for ancestry
-lookup performance, sorting before data loads and keyboard activation of
-prerequisite links. This evidence covers the local implementation; it does not
-establish deployment, authentication or source freshness on another guest.
+The earlier viewer review fixed ancestry lookup performance, sorting before
+data loads, and prerequisite keyboard activation. This revision awaits
+independent acceptance. Cross-epic arrows use orthogonal box-boundary routes;
+they do not guarantee avoidance of intervening boxes on cycles or wrapped rows.
+This evidence covers the local implementation and does not establish deployment,
+authentication, or source freshness on another guest.

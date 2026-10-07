@@ -106,7 +106,7 @@ function assertTopology(view, layout) {
   assertGeometry(layout);
   const laidOut = nodesOf(layout), input = nodesOf(view.graph);
   assert.deepEqual(laidOut.map(node => node.id).sort(), input.map(node => node.id).sort());
-  const parents = new Map(), rectangles = new Map([['root', { x: 0, y: 0 }]]);
+  const parents = new Map(), rectangles = new Map([['root', { x: 0, y: 0, width: layout.width, height: layout.height }]]);
   function visit(graph, offset = { x: 0, y: 0 }) {
     for (const node of graph.children || []) {
       parents.set(node.id, graph.id);
@@ -118,21 +118,39 @@ function assertTopology(view, layout) {
   visit(layout);
   for (const node of view.connectedTickets) {
     const epic = view.membership.get(node.id);
-    assert.equal(parents.get(node.id), epic ? `epic:${epic}` : 'root',
+    const id = node.type === 'epic' ? `epic:${node.id}` : node.id;
+    if (node.type === 'epic' && !rectangles.has(id)) {
+      assert(view.graph.edges.some(edge =>
+        edge.ticketSource === node.id && edge.sources.includes('root') ||
+        edge.ticketTarget === node.id && edge.targets.includes('root')),
+      `${node.id} must remain a box or identify the page frame in its dependencies`);
+      continue;
+    }
+    assert.equal(parents.get(id), epic && rectangles.has(`epic:${epic}`) ? `epic:${epic}` : 'root',
       `${node.id} must remain in its own epic or outside every epic`);
   }
   const edges = edgesOf(layout);
   assert.deepEqual(edges.map(edge => edge.id).sort(), view.graph.edges.map(edge => edge.id).sort());
   for (const edge of edges) {
     assert(edge.sections?.length > 0, `${edge.id} has no routed dependency`);
-    assert.equal(edge.sections[0].incomingShape, edge.sources[0], `${edge.id} must start at its prerequisite`);
-    assert.equal(edge.sections[edge.sections.length - 1].outgoingShape, edge.targets[0],
-      `${edge.id} must end at its dependent ticket`);
+    function ownsEndpoint(shape, endpoint) {
+      if (shape === 'root' && endpoint === 'root') return true;
+      for (let id = endpoint; id && id !== 'root'; id = parents.get(id)) {
+        if (id === shape) return true;
+      }
+      return false;
+    }
+    assert(ownsEndpoint(edge.sections[0].incomingShape, edge.sources[0]),
+      `${edge.id} must start at its prerequisite card or enclosing epic boundary`);
+    assert(ownsEndpoint(edge.sections[edge.sections.length - 1].outgoingShape, edge.targets[0]),
+      `${edge.id} must end at its dependent card or enclosing epic boundary`);
     for (const section of edge.sections) {
       for (const point of [section.startPoint, ...(section.bendPoints || []), section.endPoint]) {
         assert(Number.isFinite(point.x) && Number.isFinite(point.y), `${edge.id} has invalid route`);
       }
-      const container = rectangles.get(edge.container || 'root');
+      const containerId = edge.container || 'root';
+      assert(rectangles.has(containerId), `${edge.id} route container ${containerId} must exist in the rendered graph`);
+      const container = rectangles.get(containerId);
       for (const [point, id] of [[section.startPoint, section.incomingShape],
         [section.endPoint, section.outgoingShape]]) {
         assert(rectangles.has(id), `${edge.id} route endpoint must identify an existing card`);
@@ -162,14 +180,20 @@ test('real ELK keeps compound epic membership and cross-epic dependencies while 
     `compound layout area ${compactArea.toFixed(0)} must improve on baseline ${baselineArea.toFixed(0)} by at least 15%`);
   assert(compactLength < baselineLength,
     `routed dependency length ${compactLength.toFixed(0)} must improve on baseline ${baselineLength.toFixed(0)}`);
+  const production = await model.layout(view.graph, elk, 1400);
+  assertTopology(view, production);
+  const productionArea = production.width * production.height;
+  t.diagnostic(`production ${production.width.toFixed(1)} × ${production.height.toFixed(1)}, area ${productionArea.toFixed(0)}, route ${routedLength(production).toFixed(0)}`);
+  assert(productionArea <= baselineArea * 0.85,
+    `production area ${productionArea.toFixed(0)} must improve on baseline ${baselineArea.toFixed(0)} by at least 15%`);
 });
 
 test('filter changes relayout visible epic members into genuinely smaller bounds', async () => {
   const fixture = sprawlingFixture();
-  const full = await layoutGraph(model.prepare(fixture).graph);
+  const full = await model.layout(model.prepare(fixture).graph, elk, 1400);
   for (const filters of [{ statuses: ['open'] }, { epic: 'epic-2' }, { search: 'e2n2' }]) {
     const view = model.prepare(fixture, filters);
-    const layout = await layoutGraph(view.graph);
+    const layout = await model.layout(view.graph, elk, 1400);
     assertTopology(view, layout);
     assert(layout.width * layout.height < full.width * full.height * 0.75,
       `filter ${JSON.stringify(filters)} must shrink the layout area by at least 25%`);
@@ -188,8 +212,10 @@ test('disconnected dependency components pack without overlapping epics or unass
     edges: [{ source: 'a', target: 'b' }, { source: 'c', target: 'd' }, { source: 'u', target: 'v' }]
   };
   const view = model.prepare(data);
-  assertTopology(view, await layoutGraph(view.graph));
-  assert.deepEqual(view.independent.map(node => node.id), ['independent']);
+  const layout = await model.layout(view.graph, elk, 1400);
+  assertTopology(view, layout);
+  assert.deepEqual(view.independent.map(node => node.id), []);
+  assert(layout.children.find(node => node.id === 'epic:epic-a').children.some(node => node.id === 'independent'));
 });
 
 test('cycles across epic boundaries remain routed and visible in the real ELK layout', async () => {
@@ -204,5 +230,46 @@ test('cycles across epic boundaries remain routed and visible in the real ELK la
     ]
   });
   assert.equal(view.hasCycle, true);
-  assertTopology(view, await layoutGraph(view.graph));
+  assertTopology(view, await model.layout(view.graph, elk, 1400));
+});
+
+test('dependency-linked umbrella epics route to the page frame while children remain nested boxes', async () => {
+  const view = model.prepare({ tickets: [
+    ticket('umbrella', { type: 'epic', epic_id: null }),
+    ticket('left', { type: 'epic', epic_id: 'umbrella' }),
+    ticket('right', { type: 'epic', epic_id: 'umbrella' }),
+    ticket('child', { epic_id: 'left' }),
+    ticket('outside', { epic_id: null })
+  ], edges: [{ source: 'outside', target: 'umbrella' }, { source: 'left', target: 'right' }] });
+  assert(!nodesOf(view.graph).some(node => node.id === 'epic:umbrella'));
+  assert.equal(view.graph.edges.find(edge => edge.ticketTarget === 'umbrella').targets[0], 'root');
+  const layout = await model.layout(view.graph, elk, 1400);
+  assertTopology(view, layout);
+  assert.equal(edgesOf(layout).length, 2);
+});
+
+test('production layout preserves geometry and dependencies for 290 tickets within ten seconds', { timeout: 15000 }, async t => {
+  const tickets = [], edges = [];
+  for (let epic = 0; epic < 10; epic++) {
+    const epicId = `perf-epic-${epic}`;
+    tickets.push(ticket(epicId, { type: 'epic', epic_id: null }));
+    for (let member = 0; member < 28; member++) {
+      const id = `perf-${epic}-${member}`;
+      tickets.push(ticket(id, { parent_id: epicId, epic_id: epicId }));
+      // Several short DAGs reproduce the bounded independent components of
+      // real trackers without imposing a single viewport-wide critical path.
+      if (member % 4) edges.push({ source: `perf-${epic}-${member - 1}`, target: id });
+    }
+    if (epic) edges.push({ source: `perf-${epic - 1}-27`, target: `perf-${epic}-0` });
+  }
+  const started = performance.now();
+  const view = model.prepare({ tickets, edges });
+  const layout = await model.layout(view.graph, elk, 1400);
+  const elapsed = performance.now() - started;
+  t.diagnostic(`290 tickets, ${edges.length} dependencies: ${elapsed.toFixed(0)}ms, ${layout.width.toFixed(0)} × ${layout.height.toFixed(0)}`);
+  assert.equal(view.visible.length, 290);
+  assert.equal(view.independent.length, 0);
+  assertTopology(view, layout);
+  assert.equal(nodesOf(layout).length, 290);
+  assert(elapsed < 10000, `290-ticket layout took ${elapsed.toFixed(0)}ms, exceeding 10000ms`);
 });

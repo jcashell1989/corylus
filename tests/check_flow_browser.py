@@ -9,13 +9,14 @@ import subprocess
 import sys
 import tempfile
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from playwright.sync_api import expect, sync_playwright
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from td_flow import FlowServer, FlowStore, projects_from_specs  # noqa: E402
+from td_flow import FlowServer, FlowStore, normalize_export, projects_from_specs  # noqa: E402
 
 
 def run_td(binary, project, *args):
@@ -24,6 +25,25 @@ def run_td(binary, project, *args):
         capture_output=True, check=True, timeout=15,
     )
     return json.loads(result.stdout) if "--json" in args else None
+
+
+def read_fixture(project, binary):
+    """Read temporary trackers without invoking TD's scheduled export writer."""
+    issues = run_td(binary, project.path, "list", "--all", "--limit", "20000", "--json")
+    def read_row(summary):
+        issue = run_td(binary, project.path, "show", summary["id"], "--json")
+        dependencies = run_td(binary, project.path, "dep", issue["id"], "--json")
+        return {
+            "issue": issue,
+            "dependencies": [
+                {"issue_id": issue["id"], "depends_on_id": prerequisite,
+                 "relation_type": "depends_on"}
+                for prerequisite in dependencies["dependencies"]
+            ],
+        }
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        rows = list(pool.map(read_row, issues))
+    return normalize_export(rows, project)
 
 
 def fixture(binary, project):
@@ -95,7 +115,7 @@ def check_containment(page, ids):
             and box["y"] <= center_y <= box["bottom"]
             for box in boxes
         ), f"Unassigned {key} incorrectly enclosed by an epic"
-    for key in ("schema", "api", "auth", "table", "canvas"):
+    for key in ("schema", "api", "auth", "table", "canvas", "independent_member"):
         rect = graph_node(page, ids[key]).bounding_box()
         assert sum(
             box["x"] <= rect["x"] and box["y"] <= rect["y"]
@@ -106,6 +126,7 @@ def check_containment(page, ids):
 
 
 def check_browser(base_url, ids, binary, source, screenshots, executable):
+    expect.set_options(timeout=15000)
     errors = []
     external = []
     with sync_playwright() as playwright:
@@ -119,15 +140,17 @@ def check_browser(base_url, ids, binary, source, screenshots, executable):
         page.on("request", lambda request: external.append(request.url)
                 if not request.url.startswith(base_url) else None)
         page.goto(base_url)
-        expect(page.locator(".node-card")).to_have_count(7)
+        expect(page.locator(".node-card")).to_have_count(8)
         expect(page.locator(".ticket-row")).to_have_count(13)
         expect(page.locator(".graph-edge")).to_have_count(7)
         expect(page.locator("#sample-badge")).to_be_hidden()
         check_containment(page, ids)
         full_graph_area = graph_area(page)
         expect(shelf_card(page, ids["preflight"])).to_have_count(0)
-        expect(shelf_card(page, ids["independent_member"])).to_have_count(1)
-        expect(page.locator("#independent-count")).to_have_text("4")
+        expect(shelf_card(page, ids["independent_member"])).to_have_count(0)
+        expect(graph_node(page, ids["independent_member"])).to_have_count(1)
+        expect(table_row(page, ids["independent_member"]).locator("td").nth(5)).to_have_text("Backend")
+        expect(page.locator("#independent-count")).to_have_text("3")
         print("PASS live td data, dependency arrows, epic containment and independent tickets")
 
         graph_node(page, ids["api"]).click()
@@ -157,12 +180,12 @@ def check_browser(base_url, ids, binary, source, screenshots, executable):
         expect(page.locator("#search")).to_have_value("Build API")
         expect(table_row(page, ids["api"])).to_have_class("ticket-row selected")
         page.locator("#clear-filters").click()
-        expect(page.locator(".node-card")).to_have_count(7)
+        expect(page.locator(".node-card")).to_have_count(8)
         page.locator("#epic").select_option("__none__")
         expect(page.locator(".node-card")).to_have_count(2)
         expect(page.locator(".epic-boundary")).to_have_count(0)
         page.locator("#clear-filters").click()
-        expect(page.locator(".node-card")).to_have_count(7)
+        expect(page.locator(".node-card")).to_have_count(8)
         status_summary = page.locator("#status summary")
         status_summary.focus()
         page.keyboard.press("Enter")
@@ -178,9 +201,9 @@ def check_browser(base_url, ids, binary, source, screenshots, executable):
         expect(blocked).to_be_focused()
         expect(page.locator(".ticket-row")).to_have_count(12)
         expect(page.locator("#ticket-count")).to_have_text("12")
-        expect(page.locator(".node-card")).to_have_count(6)
+        expect(page.locator(".node-card")).to_have_count(7)
         expect(page.locator(".graph-edge")).to_have_count(5)
-        expect(page.locator("#independent-count")).to_have_text("4")
+        expect(page.locator("#independent-count")).to_have_text("3")
         expect(table_row(page, ids["api"])).to_have_count(1)
         expect(table_row(page, ids["preflight"])).to_have_count(1)
         expect(table_row(page, ids["auth"])).to_have_count(0)
@@ -219,7 +242,7 @@ def check_browser(base_url, ids, binary, source, screenshots, executable):
         expect(page.locator(".ticket-row")).to_have_count(13)
         page.locator('#status-options input[value="blocked"]').uncheck()
         page.locator("#clear-filters").click()
-        expect(page.locator(".node-card")).to_have_count(7)
+        expect(page.locator(".node-card")).to_have_count(8)
         expect(page.locator(".ticket-row")).to_have_count(13)
         for checkbox in statuses.all():
             expect(checkbox).to_be_checked()
@@ -394,7 +417,9 @@ def main():
         run_td(args.td, alternate, "init")
         run_td(args.td, alternate, "create", "Alternate project ticket", "--json")
         projects = projects_from_specs([f"Fixture={source}", f"Alternate={alternate}"])
-        server = FlowServer(("127.0.0.1", 0), FlowStore(projects, args.td, cache_seconds=0))
+        server = FlowServer(("127.0.0.1", 0), FlowStore(
+            projects, args.td, cache_seconds=0, exporter=read_fixture,
+        ))
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:

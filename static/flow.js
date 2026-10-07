@@ -90,10 +90,8 @@
     return button;
   }
   function renderShelf() {
-    const model = state.model, groups = new Map();
-    model.independent.forEach(ticket => { const epic = model.membership.get(ticket.id) || ''; if (!groups.has(epic)) groups.set(epic, []); groups.get(epic).push(ticket); });
-    const list = $('independent-list'); list.replaceChildren();
-    groups.forEach((tickets, epic) => { if (epic) list.append(el('div', 'shelf-group', `EPIC · ${model.epics.get(epic)?.title || epic}`)); else if (groups.size > 1) list.append(el('div', 'shelf-group', 'No epic')); tickets.forEach(t => list.append(card(t))); });
+    const model = state.model, list = $('independent-list');
+    list.replaceChildren(...model.independent.map(card));
     if (!model.independent.length) list.append(el('p', 'muted', 'No independent tickets match these filters.'));
     $('independent-count').textContent = model.independent.length;
   }
@@ -151,18 +149,28 @@
     }
     walk(layout);
     containers.forEach(node => {
-      const group = svg('g'); group.append(svg('rect', { x: node.absX, y: node.absY, width: node.width, height: node.height, rx: 8, class: `epic-boundary${state.selected === node.id.slice(5) ? ' selected' : ''}` }));
-      const label = svg('text', { x: node.absX + 18, y: node.absY + 28, class: `epic-label${state.selected === node.id.slice(5) ? ' selected' : ''}` }, `EPIC · ${state.model.epics.get(node.id.slice(5))?.title || node.id.slice(5)}`);
+      const epicId = node.id.slice(5);
+      const group = svg('g', { class: 'epic-container', 'data-ticket': epicId }); group.append(svg('rect', { x: node.absX, y: node.absY, width: node.width, height: node.height, rx: 8, class: `epic-boundary${state.selected === node.id.slice(5) ? ' selected' : ''}` }));
+      const epicTitle = state.model.epics.get(epicId)?.title || epicId;
+      const fullLabel = `EPIC · ${epicTitle}`, labelLimit = Math.max(12, Math.floor((node.width - 36) / 7.5));
+      const labelText = fullLabel.length > labelLimit ? `${fullLabel.slice(0, labelLimit - 1)}…` : fullLabel;
+      const label = svg('text', { x: node.absX + 18, y: node.absY + 28, class: `epic-label${state.selected === node.id.slice(5) ? ' selected' : ''}` }, labelText);
+      label.append(svg('title', {}, fullLabel));
+      label.setAttribute('tabindex', '0'); label.setAttribute('role', 'button'); label.setAttribute('aria-label', `Epic: ${state.model.epics.get(epicId)?.title || epicId}`);
+      label.addEventListener('click', () => selectTicket(epicId, true));
+      label.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); selectTicket(epicId, true); } });
       group.append(label); scene.append(group);
+      positions.set(epicId, { ...node, absX: node.absX, absY: node.absY, container: true });
     });
     edges.forEach(edge => (edge.sections || []).forEach(section => {
       const container = containers.find(c => c.id === edge.container);
       const offsetX = container ? container.absX : edge.offsetX, offsetY = container ? container.absY : edge.offsetY;
       const points = [section.startPoint, ...(section.bendPoints || []), section.endPoint];
-      const path = svg('path', { d: points.map((p, i) => `${i ? 'L' : 'M'}${p.x + offsetX},${p.y + offsetY}`).join(' '), class: `graph-edge${edge.sources?.includes(state.selected) || edge.targets?.includes(state.selected) ? ' selected-edge' : ''}` });
-      if (edge.sources?.[0]) path.dataset.source = edge.sources[0]; if (edge.targets?.[0]) path.dataset.target = edge.targets[0]; scene.append(path);
+      const path = svg('path', { d: points.map((p, i) => `${i ? 'L' : 'M'}${p.x + offsetX},${p.y + offsetY}`).join(' '), class: `graph-edge${edge.ticketSource === state.selected || edge.ticketTarget === state.selected || edge.sources?.includes(state.selected) || edge.targets?.includes(state.selected) ? ' selected-edge' : ''}` });
+      if (edge.sources?.[0]) path.dataset.source = edge.ticketSource || edge.sources[0]; if (edge.targets?.[0]) path.dataset.target = edge.ticketTarget || edge.targets[0]; scene.append(path);
     }));
     positions.forEach(node => {
+      if (node.container) return;
       const ticket = state.model.byId.get(node.id); if (!ticket) return;
       const group = svg('g', { transform: `translate(${node.absX},${node.absY})`, class: `node-card${state.selected === ticket.id ? ' selected' : ''}`, 'data-ticket': ticket.id, tabindex: 0, role: 'button', 'aria-label': `${ticket.id}: ${ticket.title}. ${statusLabel(ticket.status)}`, 'aria-pressed': String(state.selected === ticket.id) });
       group.append(svg('title', {}, `${ticket.id}: ${ticket.title}`), svg('rect', { width: node.width, height: node.height, rx: 6 }), svg('text', { x: 13, y: 19, class: 'node-id' }, ticket.id), svg('text', { x: node.width - 14, y: 19, 'text-anchor': 'end', class: 'node-id' }, priorityLabel(ticket.priority)));
@@ -185,36 +193,41 @@
     state.model.visible.forEach(ticket => { if (ticket.type === 'epic') visibleEpics.add(ticket.id); const epic = state.model.membership.get(ticket.id); if (epic) visibleEpics.add(epic); });
     $('graph-summary').textContent = `${state.model.connectedTickets.length} connected · ${visibleEpics.size} epics · ${state.model.visibleEdges.length} links`;
     $('graph-empty').hidden = Boolean(state.model.graph.children.length);
-    $('graph-empty').textContent = state.model.tickets.length ? 'No connected tickets match these filters. Independent tickets are on the right.' : 'This project has no tickets yet.';
+    $('graph-empty').textContent = state.model.tickets.length ? 'No graph tickets match these filters. Independent tickets are on the right.' : 'This project has no tickets yet.';
     if (!elk) { $('graph-empty').hidden = false; $('graph-empty').textContent = 'The graph layout library could not be loaded. Ticket details remain available below.'; message(['The graph layout library could not be loaded. Refresh after restoring the static assets.'], true); return; }
-    const key = JSON.stringify(state.model.graph);
+    const viewportWidth = $('graph-viewport').clientWidth;
+    const key = `${viewportWidth}:${JSON.stringify(state.model.graph)}`;
     try {
-      const layout = key === state.layoutKey && state.layout ? state.layout : await elk.layout(state.model.graph);
+      const layout = key === state.layoutKey && state.layout ? state.layout : await FlowModel.layout(state.model.graph, elk, viewportWidth);
       if (version !== state.renderVersion) return;
       const changed = state.layoutKey !== key;
       state.layout = layout; state.layoutKey = key; renderGraph(layout);
-      if (state.firstLayout || changed) { fit(); state.firstLayout = false; }
+      if (state.firstLayout || changed) { fit(true); state.firstLayout = false; }
     } catch { if (version === state.renderVersion) { message([...state.model.warnings, 'Graph layout failed. The ticket table is available; try filtering to a smaller view or refreshing.'], true); $('graph-scene').replaceChildren(); $('graph-empty').hidden = false; $('graph-empty').textContent = 'Unable to lay out these dependencies.'; } }
   }
   function selectTicket(id, scroll = false) {
     if (!state.model?.byId.has(id)) { message([`Ticket ${id} is not available in this project snapshot.`]); return; }
-    const focused = document.activeElement, focusKind = focused?.classList?.contains('node-card') ? 'graph' : focused?.classList?.contains('ticket-row') ? 'table' : focused?.classList?.contains('ticket-card') ? 'shelf' : null;
+    const focused = document.activeElement, focusKind = focused?.classList?.contains('epic-label') ? 'epic' : focused?.classList?.contains('node-card') ? 'graph' : focused?.classList?.contains('ticket-row') ? 'table' : focused?.classList?.contains('ticket-card') ? 'shelf' : null;
     state.selected = id; renderShelf(); renderTable(); if (state.layout) renderGraph(state.layout);
     if (focusKind) {
-      const host = focusKind === 'graph' ? $('graph-scene') : focusKind === 'table' ? $('ticket-rows') : $('independent-list');
-      [...host.querySelectorAll('[data-ticket]')].find(node => node.dataset.ticket === id)?.focus({ preventScroll: true });
+      const host = ['graph', 'epic'].includes(focusKind) ? $('graph-scene') : focusKind === 'table' ? $('ticket-rows') : $('independent-list');
+      const target = [...host.querySelectorAll('[data-ticket]')].find(node => node.dataset.ticket === id);
+      (focusKind === 'epic' ? target?.querySelector('.epic-label') : target)?.focus({ preventScroll: true });
     }
     if (scroll) [...$('ticket-rows').querySelectorAll('.ticket-row')].find(row => row.dataset.ticket === id)?.scrollIntoView({ block: 'nearest', behavior: 'instant' });
   }
   function applyTransform() { const t = state.transform; $('graph-scene').setAttribute('transform', `translate(${t.x},${t.y}) scale(${t.scale})`); $('zoom-label').textContent = `${Math.round(t.scale * 100)}%`; }
-  function fit() {
+  function fit(topAnchored = false) {
     if (!state.layout) return;
     const width = $('graph-viewport').clientWidth, height = $('graph-viewport').clientHeight;
-    const scale = Math.max(.12, Math.min(1.25, (width - 35) / Math.max(1, state.layout.width || 1), (height - 42) / Math.max(1, state.layout.height || 1)));
+    if (topAnchored) {
+      state.transform = { scale: Math.min(1, (width - 35) / Math.max(1, state.layout.width || 1)), x: 16, y: 16 }; applyTransform(); return;
+    }
+    const scale = Math.max(.01, Math.min(1.25, (width - 35) / Math.max(1, state.layout.width || 1), (height - 42) / Math.max(1, state.layout.height || 1)));
     state.transform = { scale, x: (width - (state.layout.width || 0) * scale) / 2, y: (height - (state.layout.height || 0) * scale) / 2 }; applyTransform();
   }
   function zoom(factor, px = $('graph-viewport').clientWidth / 2, py = $('graph-viewport').clientHeight / 2) {
-    const t = state.transform, next = Math.max(.12, Math.min(3, t.scale * factor)), ratio = next / t.scale;
+    const t = state.transform, next = Math.max(.01, Math.min(3, t.scale * factor)), ratio = next / t.scale;
     state.transform = { scale: next, x: px - (px - t.x) * ratio, y: py - (py - t.y) * ratio }; applyTransform();
   }
   $('sample-badge').hidden = !demo;
@@ -233,9 +246,9 @@
   $('project').addEventListener('change', () => { state.projectVersion++; state.selected = null; state.data = null; state.firstLayout = true; state.layout = null; $('graph-scene').replaceChildren(); $('ticket-rows').replaceChildren(); $('independent-list').replaceChildren(); $('graph-empty').hidden = false; $('graph-empty').textContent = 'Loading project…'; state.availableStatuses = []; resetFilters(); const url = new URL(location.href); url.searchParams.set('project', $('project').value); history.replaceState(null, '', url); refresh(); });
   $('refresh').addEventListener('click', () => { if ($('project').options.length) refresh(); else loadProjects().catch(error => message([error.message], true)); });
   document.querySelectorAll('[data-sort]').forEach(button => button.addEventListener('click', () => { state.direction = state.sort === button.dataset.sort ? -state.direction : 1; state.sort = button.dataset.sort; renderTable(); }));
-  $('fit').addEventListener('click', fit); $('zoom-in').addEventListener('click', () => zoom(1.2)); $('zoom-out').addEventListener('click', () => zoom(1 / 1.2));
+  $('fit').addEventListener('click', () => fit()); $('zoom-in').addEventListener('click', () => zoom(1.2)); $('zoom-out').addEventListener('click', () => zoom(1 / 1.2));
   let drag = null;
-  $('graph-viewport').addEventListener('pointerdown', event => { if (event.button !== 0 || event.target.closest('.node-card')) return; drag = { x: event.clientX, y: event.clientY, tx: state.transform.x, ty: state.transform.y }; $('graph-viewport').setPointerCapture(event.pointerId); $('graph-viewport').classList.add('dragging'); });
+  $('graph-viewport').addEventListener('pointerdown', event => { if (event.button !== 0 || event.target.closest('.node-card, .epic-label')) return; drag = { x: event.clientX, y: event.clientY, tx: state.transform.x, ty: state.transform.y }; $('graph-viewport').setPointerCapture(event.pointerId); $('graph-viewport').classList.add('dragging'); });
   $('graph-viewport').addEventListener('pointermove', event => { if (!drag) return; state.transform.x = drag.tx + event.clientX - drag.x; state.transform.y = drag.ty + event.clientY - drag.y; applyTransform(); });
   function endPan() { drag = null; $('graph-viewport').classList.remove('dragging'); }
   $('graph-viewport').addEventListener('pointerup', endPan); $('graph-viewport').addEventListener('pointercancel', endPan);
@@ -252,6 +265,8 @@
   $('divider').addEventListener('pointermove', event => { if (!resizing) return; const rect = $('workspace').getBoundingClientRect(); resizeTo((event.clientY - rect.top) / rect.height * 100); });
   $('divider').addEventListener('pointerup', () => { resizing = false; }); $('divider').addEventListener('pointercancel', () => { resizing = false; });
   $('divider').addEventListener('keydown', event => { if (event.key === 'ArrowUp' || event.key === 'ArrowDown') { event.preventDefault(); resizeTo(Number($('divider').getAttribute('aria-valuenow')) + (event.key === 'ArrowUp' ? -5 : 5)); } });
+  let resizeTimer;
+  new ResizeObserver(() => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => { if (state.data && state.layout) render(); }, 100); }).observe($('graph-viewport'));
   loadProjects().catch(error => { message([error.message], true); $('updated').textContent = 'Connection failed'; $('graph-empty').hidden = false; $('graph-empty').textContent = 'Cannot load projects. Use Refresh to try again.'; });
   setInterval(() => { if (!document.hidden && state.data && !demo) refresh(); }, 30000);
 })();

@@ -1,0 +1,40 @@
+{
+  "snapshot_sha256": "ad96c4c1156bfff6b010875b46416e64b55c5555d01dcccfb16e3067ae9ada0c",
+  "snapshot_records": 245,
+  "snapshot_dependencies": 116,
+  "baseline_ref": "c14112c",
+  "ticket_text_anonymized": true,
+  "before": {
+    "width": 4966,
+    "height": 2985,
+    "area": 14823510,
+    "cards": 96,
+    "epic_boxes": 17,
+    "edge_paths": 116,
+    "shelf": 128,
+    "viewport": 1461,
+    "page_ready_seconds": 2.428,
+    "initial_transform": {
+      "x": 361.6716003417969,
+      "y": 21,
+      "scale": 0.14782701432704926
+    }
+  },
+  "after": {
+    "width": 1408,
+    "height": 6392,
+    "area": 8999936,
+    "cards": 184,
+    "epic_boxes": 21,
+    "edge_paths": 116,
+    "shelf": 39,
+    "viewport": 1461,
+    "page_ready_seconds": 1.984,
+    "initial_transform": {
+      "x": 16,
+      "y": 16,
+      "scale": 0.9958100914955139
+    }
+  },
+  "area_change_percent": -39.29
+}
