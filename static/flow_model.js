@@ -54,8 +54,11 @@
       edges.push({ source, target });
     }
     const query = (filters.search || '').trim().toLowerCase();
+    // Missing/null means all statuses; an explicit empty selection means none.
+    const statuses = Array.isArray(filters.statuses) ? new Set(filters.statuses) :
+      filters.status ? new Set([filters.status]) : null;
     const matches = t => (!query || [t.id, t.title, t.description, ...(t.labels || [])].join(' ').toLowerCase().includes(query)) &&
-      (!filters.status || t.status === filters.status) && (!filters.priority || String(t.priority) === filters.priority) &&
+      (!statuses || statuses.has(t.status)) && (!filters.priority || String(t.priority) === filters.priority) &&
       (!filters.epic || (filters.epic === '__none__' ? !membership.get(t.id) && t.type !== 'epic' : membership.get(t.id) === filters.epic || t.id === filters.epic));
     const visible = tickets.filter(matches), visibleIds = new Set(visible.map(t => t.id));
     const connectedTickets = visible.filter(t => connected.has(t.id));
