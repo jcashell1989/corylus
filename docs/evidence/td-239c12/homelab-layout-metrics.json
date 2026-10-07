@@ -1,0 +1,1846 @@
+{
+  "snapshot_sha256": "ad96c4c1156bfff6b010875b46416e64b55c5555d01dcccfb16e3067ae9ada0c",
+  "snapshot_records": 245,
+  "snapshot_dependencies": 116,
+  "baseline_ref": "752f8d5",
+  "ticket_text_anonymized": true,
+  "before": {
+    "width": 1584,
+    "height": 5852,
+    "area": 9269568,
+    "cards": 184,
+    "epic_boxes": 21,
+    "edge_paths": 116,
+    "shelf": 39,
+    "viewport": 1461,
+    "dependency_direction": {
+      "same_epic": {
+        "right": 62,
+        "left": 0,
+        "vertical": 0
+      },
+      "shared_epic": {
+        "right": 66,
+        "left": 0,
+        "vertical": 0
+      },
+      "other": {
+        "right": 23,
+        "left": 22,
+        "vertical": 9
+      },
+      "same_epic_edges": [
+        {
+          "source": "td-00d266",
+          "target": "td-33af79",
+          "epic": "td-ea3ecb",
+          "same_epic": true,
+          "shared_epic": "td-ea3ecb",
+          "direction": "right",
+          "source_x": 24,
+          "target_x": 216,
+          "source_y": 1288,
+          "target_y": 1288
+        },
+        {
+          "source": "td-08e778",
+          "target": "td-0f7a34",
+          "epic": "td-0fcd1d",
+          "same_epic": true,
+          "shared_epic": "td-0fcd1d",
+          "direction": "right",
+          "source_x": 210,
+          "target_x": 416,
+          "source_y": 2481,
+          "target_y": 2491
+        },
+        {
+          "source": "td-0d409f",
+          "target": "td-98077c",
+          "epic": "td-d88b72",
+          "same_epic": true,
+          "shared_epic": "td-d88b72",
+          "direction": "right",
+          "source_x": 824,
+          "target_x": 1024,
+          "source_y": 4809,
+          "target_y": 4734
+        },
+        {
+          "source": "td-127aad",
+          "target": "td-15dc18",
+          "epic": "td-d88b72",
+          "same_epic": true,
+          "shared_epic": "td-d88b72",
+          "direction": "right",
+          "source_x": 224,
+          "target_x": 424,
+          "source_y": 4883,
+          "target_y": 4834
+        },
+        {
+          "source": "td-15dc18",
+          "target": "td-0d409f",
+          "epic": "td-d88b72",
+          "same_epic": true,
+          "shared_epic": "td-d88b72",
+          "direction": "right",
+          "source_x": 424,
+          "target_x": 824,
+          "source_y": 4834,
+          "target_y": 4809
+        },
+        {
+          "source": "td-15dc18",
+          "target": "td-d1af30",
+          "epic": "td-d88b72",
+          "same_epic": true,
+          "shared_epic": "td-d88b72",
+          "direction": "right",
+          "source_x": 424,
+          "target_x": 624,
+          "source_y": 4834,
+          "target_y": 4792
+        },
+        {
+          "source": "td-1aa78a",
+          "target": "td-b05843",
+          "epic": "td-d88b72",
+          "same_epic": true,
+          "shared_epic": "td-d88b72",
+          "direction": "right",
+          "source_x": 24,
+          "target_x": 224,
+          "source_y": 4684,
+          "target_y": 4775
+        },
+        {
+          "source": "td-1aa78a",
+          "target": "td-c623f9",
+          "epic": "td-d88b72",
+          "same_epic": true,
+          "shared_epic": "td-d88b72",
+          "direction": "right",
+          "source_x": 24,
+          "target_x": 224,
+          "source_y": 4684,
+          "target_y": 4667
+        },
+        {
+          "source": "td-1d910c",
+          "target": "td-04365a",
+          "epic": "td-f136a9",
+          "same_epic": true,
+          "shared_epic": "td-f136a9",
+          "direction": "right",
+          "source_x": 230,
+          "target_x": 642,
+          "source_y": 1772,
+          "target_y": 1765
+        },
+        {
+          "source": "td-1d910c",
+          "target": "td-6283ed",
+          "epic": "td-f136a9",
+          "same_epic": true,
+          "shared_epic": "td-f136a9",
+          "direction": "right",
+          "source_x": 230,
+          "target_x": 442,
+          "source_y": 1772,
+          "target_y": 1922
+        },
+        {
+          "source": "td-1d9276",
+          "target": "td-d81c39",
+          "epic": "td-8db709",
+          "same_epic": true,
+          "shared_epic": "td-8db709",
+          "direction": "right",
+          "source_x": 24,
+          "target_x": 216,
+          "source_y": 60,
+          "target_y": 60
+        },
+        {
+          "source": "td-24dc3d",
+          "target": "td-ddf1d0",
+          "epic": "td-8d31c7",
+          "same_epic": true,
+          "shared_epic": "td-8d31c7",
+          "direction": "right",
+          "source_x": 24,
+          "target_x": 224,
+          "source_y": 5276,
+          "target_y": 5276
+        },
+        {
+          "source": "td-3be175",
+          "target": "td-0f7a34",
+          "epic": "td-0fcd1d",
+          "same_epic": true,
+          "shared_epic": "td-0fcd1d",
+          "direction": "right",
+          "source_x": 210,
+          "target_x": 416,
+          "source_y": 2589,
+          "target_y": 2491
+        },
+        {
+          "source": "td-3cf0a7",
+          "target": "td-0ea8e4",
+          "epic": "td-f136a9",
+          "same_epic": true,
+          "shared_epic": "td-f136a9",
+          "direction": "right",
+          "source_x": 24,
+          "target_x": 230,
+          "source_y": 1880,
+          "target_y": 1880
+        },
+        {
+          "source": "td-3cf0a7",
+          "target": "td-1d910c",
+          "epic": "td-f136a9",
+          "same_epic": true,
+          "shared_epic": "td-f136a9",
+          "direction": "right",
+          "source_x": 24,
+          "target_x": 230,
+          "source_y": 1880,
+          "target_y": 1772
+        },
+        {
+          "source": "td-3cf0a7",
+          "target": "td-58e012",
+          "epic": "td-f136a9",
+          "same_epic": true,
+          "shared_epic": "td-f136a9",
+          "direction": "right",
+          "source_x": 24,
+          "target_x": 436,
+          "source_y": 1880,
+          "target_y": 1814
+        },
+        {
+          "source": "td-3cf0a7",
+          "target": "td-5edd77",
+          "epic": "td-f136a9",
+          "same_epic": true,
+          "shared_epic": "td-f136a9",
+          "direction": "right",
+          "source_x": 24,
+          "target_x": 242,
+          "source_y": 1880,
+          "target_y": 1997
+        },
+        {
+          "source": "td-3cf0a7",
+          "target": "td-8696df",
+          "epic": "td-f136a9",
+          "same_epic": true,
+          "shared_epic": "td-f136a9",
+          "direction": "right",
+          "source_x": 24,
+          "target_x": 236,
+          "source_y": 1880,
+          "target_y": 1664
+        },
+        {
+          "source": "td-3f7f83",
+          "target": "td-b647f0",
+          "epic": "td-9c3eca",
+          "same_epic": true,
+          "shared_epic": "td-9c3eca",
+          "direction": "right",
+          "source_x": 24,
+          "target_x": 216,
+          "source_y": 5760,
+          "target_y": 5760
+        },
+        {
+          "source": "td-3f9b8a",
+          "target": "td-0f7a34",
+          "epic": "td-0fcd1d",
+          "same_epic": true,
+          "shared_epic": "td-0fcd1d",
+          "direction": "right",
+          "source_x": 216,
+          "target_x": 416,
+          "source_y": 2697,
+          "target_y": 2491
+        },
+        {
+          "source": "td-47d8fe",
+          "target": "td-725202",
+          "epic": "td-0ff984",
+          "same_epic": true,
+          "shared_epic": "td-0ff984",
+          "direction": "right",
+          "source_x": 240,
+          "target_x": 432,
+          "source_y": 648,
+          "target_y": 648
+        },
+        {
+          "source": "td-4ac8e2",
+          "target": "td-705432",
+          "epic": "td-8d31c7",
+          "same_epic": true,
+          "shared_epic": "td-8d31c7",
+          "direction": "right",
+          "source_x": 24,
+          "target_x": 224,
+          "source_y": 5168,
+          "target_y": 5151
+        },
+        {
+          "source": "td-4ac8e2",
+          "target": "td-ddf1d0",
+          "epic": "td-8d31c7",
+          "same_epic": true,
+          "shared_epic": "td-8d31c7",
+          "direction": "right",
+          "source_x": 24,
+          "target_x": 224,
+          "source_y": 5168,
+          "target_y": 5276
+        },
+        {
+          "source": "td-54c365",
+          "target": "td-57ac59",
+          "epic": "td-8db709",
+          "same_epic": true,
+          "shared_epic": "td-8db709",
+          "direction": "right",
+          "source_x": 216,
+          "target_x": 416,
+          "source_y": 168,
+          "target_y": 77
+        },
+        {
+          "source": "td-555671",
+          "target": "td-2056fc",
+          "epic": "td-f136a9",
+          "same_epic": true,
+          "shared_epic": "td-f136a9",
+          "direction": "right",
+          "source_x": 834,
+          "target_x": 1026,
+          "source_y": 1664,
+          "target_y": 1664
+        },
+        {
+          "source": "td-58e012",
+          "target": "td-04365a",
+          "epic": "td-f136a9",
+          "same_epic": true,
+          "shared_epic": "td-f136a9",
+          "direction": "right",
+          "source_x": 436,
+          "target_x": 642,
+          "source_y": 1814,
+          "target_y": 1765
+        },
+        {
+          "source": "td-59cfa3",
+          "target": "td-419bd8",
+          "epic": "td-129a9c",
+          "same_epic": true,
+          "shared_epic": "td-129a9c",
+          "direction": "right",
+          "source_x": 804,
+          "target_x": 1004,
+          "source_y": 3868,
+          "target_y": 3851
+        },
+        {
+          "source": "td-59cfa3",
+          "target": "td-d13f01",
+          "epic": "td-129a9c",
+          "same_epic": true,
+          "shared_epic": "td-129a9c",
+          "direction": "right",
+          "source_x": 804,
+          "target_x": 1004,
+          "source_y": 3868,
+          "target_y": 3959
+        },
+        {
+          "source": "td-5edd77",
+          "target": "td-04365a",
+          "epic": "td-f136a9",
+          "same_epic": true,
+          "shared_epic": "td-f136a9",
+          "direction": "right",
+          "source_x": 242,
+          "target_x": 642,
+          "source_y": 1997,
+          "target_y": 1765
+        },
+        {
+          "source": "td-5edd77",
+          "target": "td-6283ed",
+          "epic": "td-f136a9",
+          "same_epic": true,
+          "shared_epic": "td-f136a9",
+          "direction": "right",
+          "source_x": 242,
+          "target_x": 442,
+          "source_y": 1997,
+          "target_y": 1922
+        },
+        {
+          "source": "td-5f2c56",
+          "target": "td-de5c58",
+          "epic": "td-129a9c",
+          "same_epic": true,
+          "shared_epic": "td-129a9c",
+          "direction": "right",
+          "source_x": 612,
+          "target_x": 804,
+          "source_y": 3510,
+          "target_y": 3510
+        },
+        {
+          "source": "td-6283ed",
+          "target": "td-2056fc",
+          "epic": "td-f136a9",
+          "same_epic": true,
+          "shared_epic": "td-f136a9",
+          "direction": "right",
+          "source_x": 442,
+          "target_x": 1026,
+          "source_y": 1922,
+          "target_y": 1664
+        },
+        {
+          "source": "td-665cb0",
+          "target": "td-8f9607",
+          "epic": "td-129a9c",
+          "same_epic": true,
+          "shared_epic": "td-129a9c",
+          "direction": "right",
+          "source_x": 1004,
+          "target_x": 1196,
+          "source_y": 3618,
+          "target_y": 3618
+        },
+        {
+          "source": "td-74d4e3",
+          "target": "td-5008ad",
+          "epic": "td-e7abab",
+          "same_epic": true,
+          "shared_epic": "td-e7abab",
+          "direction": "right",
+          "source_x": 648,
+          "target_x": 840,
+          "source_y": 648,
+          "target_y": 648
+        },
+        {
+          "source": "td-7e46b4",
+          "target": "td-e1c868",
+          "epic": "td-129a9c",
+          "same_epic": true,
+          "shared_epic": "td-129a9c",
+          "direction": "right",
+          "source_x": 612,
+          "target_x": 804,
+          "source_y": 3618,
+          "target_y": 3618
+        },
+        {
+          "source": "td-7e6bb6",
+          "target": "td-df22f8",
+          "epic": "td-238d7c",
+          "same_epic": true,
+          "shared_epic": "td-238d7c",
+          "direction": "right",
+          "source_x": 24,
+          "target_x": 216,
+          "source_y": 3449,
+          "target_y": 3449
+        },
+        {
+          "source": "td-8696df",
+          "target": "td-04365a",
+          "epic": "td-f136a9",
+          "same_epic": true,
+          "shared_epic": "td-f136a9",
+          "direction": "right",
+          "source_x": 236,
+          "target_x": 642,
+          "source_y": 1664,
+          "target_y": 1765
+        },
+        {
+          "source": "td-8696df",
+          "target": "td-58e012",
+          "epic": "td-f136a9",
+          "same_epic": true,
+          "shared_epic": "td-f136a9",
+          "direction": "right",
+          "source_x": 236,
+          "target_x": 436,
+          "source_y": 1664,
+          "target_y": 1814
+        },
+        {
+          "source": "td-8f9607",
+          "target": "td-a2cbdc",
+          "epic": "td-129a9c",
+          "same_epic": true,
+          "shared_epic": "td-129a9c",
+          "direction": "right",
+          "source_x": 1196,
+          "target_x": 1388,
+          "source_y": 3618,
+          "target_y": 3618
+        },
+        {
+          "source": "td-8ffb54",
+          "target": "td-0f7a34",
+          "epic": "td-0fcd1d",
+          "same_epic": true,
+          "shared_epic": "td-0fcd1d",
+          "direction": "right",
+          "source_x": 216,
+          "target_x": 416,
+          "source_y": 2373,
+          "target_y": 2491
+        },
+        {
+          "source": "td-98077c",
+          "target": "td-7b8266",
+          "epic": "td-d88b72",
+          "same_epic": true,
+          "shared_epic": "td-d88b72",
+          "direction": "right",
+          "source_x": 1024,
+          "target_x": 1216,
+          "source_y": 4734,
+          "target_y": 4734
+        },
+        {
+          "source": "td-aac53a",
+          "target": "td-59cfa3",
+          "epic": "td-129a9c",
+          "same_epic": true,
+          "shared_epic": "td-129a9c",
+          "direction": "right",
+          "source_x": 612,
+          "target_x": 804,
+          "source_y": 3868,
+          "target_y": 3868
+        },
+        {
+          "source": "td-ac0234",
+          "target": "td-403f0f",
+          "epic": "td-238d7c",
+          "same_epic": true,
+          "shared_epic": "td-238d7c",
+          "direction": "right",
+          "source_x": 24,
+          "target_x": 224,
+          "source_y": 4308,
+          "target_y": 4291
+        },
+        {
+          "source": "td-ac0234",
+          "target": "td-cd9001",
+          "epic": "td-238d7c",
+          "same_epic": true,
+          "shared_epic": "td-238d7c",
+          "direction": "right",
+          "source_x": 24,
+          "target_x": 224,
+          "source_y": 4308,
+          "target_y": 4399
+        },
+        {
+          "source": "td-b05843",
+          "target": "td-15dc18",
+          "epic": "td-d88b72",
+          "same_epic": true,
+          "shared_epic": "td-d88b72",
+          "direction": "right",
+          "source_x": 224,
+          "target_x": 424,
+          "source_y": 4775,
+          "target_y": 4834
+        },
+        {
+          "source": "td-b05843",
+          "target": "td-d09ce6",
+          "epic": "td-d88b72",
+          "same_epic": true,
+          "shared_epic": "td-d88b72",
+          "direction": "right",
+          "source_x": 224,
+          "target_x": 424,
+          "source_y": 4775,
+          "target_y": 4717
+        },
+        {
+          "source": "td-b05843",
+          "target": "td-d1af30",
+          "epic": "td-d88b72",
+          "same_epic": true,
+          "shared_epic": "td-d88b72",
+          "direction": "right",
+          "source_x": 224,
+          "target_x": 624,
+          "source_y": 4775,
+          "target_y": 4792
+        },
+        {
+          "source": "td-bad415",
+          "target": "td-ddf1d0",
+          "epic": "td-8d31c7",
+          "same_epic": true,
+          "shared_epic": "td-8d31c7",
+          "direction": "right",
+          "source_x": 24,
+          "target_x": 224,
+          "source_y": 5384,
+          "target_y": 5276
+        },
+        {
+          "source": "td-c623f9",
+          "target": "td-d09ce6",
+          "epic": "td-d88b72",
+          "same_epic": true,
+          "shared_epic": "td-d88b72",
+          "direction": "right",
+          "source_x": 224,
+          "target_x": 424,
+          "source_y": 4667,
+          "target_y": 4717
+        },
+        {
+          "source": "td-d09ce6",
+          "target": "td-98077c",
+          "epic": "td-d88b72",
+          "same_epic": true,
+          "shared_epic": "td-d88b72",
+          "direction": "right",
+          "source_x": 424,
+          "target_x": 1024,
+          "source_y": 4717,
+          "target_y": 4734
+        },
+        {
+          "source": "td-d13f01",
+          "target": "td-f1e108",
+          "epic": "td-129a9c",
+          "same_epic": true,
+          "shared_epic": "td-129a9c",
+          "direction": "right",
+          "source_x": 1004,
+          "target_x": 1196,
+          "source_y": 3959,
+          "target_y": 3959
+        },
+        {
+          "source": "td-d1af30",
+          "target": "td-0d409f",
+          "epic": "td-d88b72",
+          "same_epic": true,
+          "shared_epic": "td-d88b72",
+          "direction": "right",
+          "source_x": 624,
+          "target_x": 824,
+          "source_y": 4792,
+          "target_y": 4809
+        },
+        {
+          "source": "td-d40feb",
+          "target": "td-665cb0",
+          "epic": "td-129a9c",
+          "same_epic": true,
+          "shared_epic": "td-129a9c",
+          "direction": "right",
+          "source_x": 804,
+          "target_x": 1004,
+          "source_y": 3726,
+          "target_y": 3618
+        },
+        {
+          "source": "td-d40feb",
+          "target": "td-aa8696",
+          "epic": "td-129a9c",
+          "same_epic": true,
+          "shared_epic": "td-129a9c",
+          "direction": "right",
+          "source_x": 804,
+          "target_x": 1004,
+          "source_y": 3726,
+          "target_y": 3743
+        },
+        {
+          "source": "td-d81c39",
+          "target": "td-57ac59",
+          "epic": "td-8db709",
+          "same_epic": true,
+          "shared_epic": "td-8db709",
+          "direction": "right",
+          "source_x": 216,
+          "target_x": 416,
+          "source_y": 60,
+          "target_y": 77
+        },
+        {
+          "source": "td-ddf1d0",
+          "target": "td-b9dd46",
+          "epic": "td-8d31c7",
+          "same_epic": true,
+          "shared_epic": "td-8d31c7",
+          "direction": "right",
+          "source_x": 224,
+          "target_x": 416,
+          "source_y": 5276,
+          "target_y": 5276
+        },
+        {
+          "source": "td-de5c58",
+          "target": "td-665cb0",
+          "epic": "td-129a9c",
+          "same_epic": true,
+          "shared_epic": "td-129a9c",
+          "direction": "right",
+          "source_x": 804,
+          "target_x": 1004,
+          "source_y": 3510,
+          "target_y": 3618
+        },
+        {
+          "source": "td-de5c58",
+          "target": "td-ed4b12",
+          "epic": "td-129a9c",
+          "same_epic": true,
+          "shared_epic": "td-129a9c",
+          "direction": "right",
+          "source_x": 804,
+          "target_x": 1004,
+          "source_y": 3510,
+          "target_y": 3493
+        },
+        {
+          "source": "td-df22f8",
+          "target": "td-ce00e9",
+          "epic": "td-238d7c",
+          "same_epic": true,
+          "shared_epic": "td-238d7c",
+          "direction": "right",
+          "source_x": 216,
+          "target_x": 408,
+          "source_y": 3449,
+          "target_y": 3449
+        },
+        {
+          "source": "td-e1c868",
+          "target": "td-665cb0",
+          "epic": "td-129a9c",
+          "same_epic": true,
+          "shared_epic": "td-129a9c",
+          "direction": "right",
+          "source_x": 804,
+          "target_x": 1004,
+          "source_y": 3618,
+          "target_y": 3618
+        },
+        {
+          "source": "td-f3c277",
+          "target": "td-8d9ad8",
+          "epic": "td-001db0",
+          "same_epic": true,
+          "shared_epic": "td-001db0",
+          "direction": "right",
+          "source_x": 24,
+          "target_x": 216,
+          "source_y": 1128,
+          "target_y": 1128
+        },
+        {
+          "source": "td-f6b46b",
+          "target": "td-3f9b8a",
+          "epic": "td-0fcd1d",
+          "same_epic": true,
+          "shared_epic": "td-0fcd1d",
+          "direction": "right",
+          "source_x": 24,
+          "target_x": 216,
+          "source_y": 2697,
+          "target_y": 2697
+        }
+      ]
+    },
+    "columns": {
+      "root_epics": [
+        {
+          "id": "epic:td-001db0",
+          "x": 12,
+          "y": 1084
+        },
+        {
+          "id": "epic:td-ea3ecb",
+          "x": 12,
+          "y": 1244
+        },
+        {
+          "id": "epic:td-f136a9",
+          "x": 12,
+          "y": 1620
+        },
+        {
+          "id": "epic:td-0fcd1d",
+          "x": 12,
+          "y": 2329
+        },
+        {
+          "id": "epic:td-238d7c",
+          "x": 12,
+          "y": 3405
+        },
+        {
+          "id": "epic:td-d88b72",
+          "x": 12,
+          "y": 4623
+        },
+        {
+          "id": "epic:td-8d31c7",
+          "x": 12,
+          "y": 5107
+        },
+        {
+          "id": "epic:td-8db709",
+          "x": 12,
+          "y": 16
+        },
+        {
+          "id": "epic:td-dfa7a1",
+          "x": 12,
+          "y": 284
+        },
+        {
+          "id": "epic:td-9c3eca",
+          "x": 12,
+          "y": 5716
+        },
+        {
+          "id": "epic:td-627ed0",
+          "x": 204,
+          "y": 924
+        },
+        {
+          "id": "epic:td-bd6d1f",
+          "x": 12,
+          "y": 604
+        },
+        {
+          "id": "epic:td-0ff984",
+          "x": 228,
+          "y": 604
+        },
+        {
+          "id": "epic:td-166e2d",
+          "x": 804,
+          "y": 5716
+        },
+        {
+          "id": "epic:td-e7abab",
+          "x": 636,
+          "y": 604
+        },
+        {
+          "id": "epic:td-8f738e",
+          "x": 12,
+          "y": 764
+        },
+        {
+          "id": "epic:td-ec4364",
+          "x": 228,
+          "y": 764
+        }
+      ],
+      "sibling_tops": [
+        {
+          "container": "root",
+          "tops": [
+            1084,
+            1244,
+            1620,
+            2329,
+            3405,
+            4623,
+            5107,
+            16,
+            284,
+            5716,
+            924,
+            604,
+            604,
+            5716,
+            604,
+            764,
+            764
+          ]
+        },
+        {
+          "container": "epic:td-f136a9",
+          "tops": [
+            1664
+          ]
+        },
+        {
+          "container": "epic:td-0fcd1d",
+          "tops": [
+            2805
+          ]
+        },
+        {
+          "container": "epic:td-238d7c",
+          "tops": [
+            3449
+          ]
+        },
+        {
+          "container": "epic:td-dfa7a1",
+          "tops": [
+            328
+          ]
+        }
+      ],
+      "acyclic_dependencies": 10,
+      "backward_acyclic": 8,
+      "cyclic_dependencies": 34
+    },
+    "page_ready_seconds": 1.561,
+    "initial_transform": {
+      "x": 16,
+      "y": 16,
+      "scale": 0.8868159055709839
+    }
+  },
+  "after": {
+    "width": 13082,
+    "height": 2204,
+    "area": 28832728,
+    "cards": 184,
+    "epic_boxes": 21,
+    "edge_paths": 116,
+    "shelf": 39,
+    "viewport": 1461,
+    "dependency_direction": {
+      "same_epic": {
+        "right": 62,
+        "left": 0,
+        "vertical": 0
+      },
+      "shared_epic": {
+        "right": 66,
+        "left": 0,
+        "vertical": 0
+      },
+      "other": {
+        "right": 47,
+        "left": 7,
+        "vertical": 0
+      },
+      "same_epic_edges": [
+        {
+          "source": "td-00d266",
+          "target": "td-33af79",
+          "epic": "td-ea3ecb",
+          "same_epic": true,
+          "shared_epic": "td-ea3ecb",
+          "direction": "right",
+          "source_x": 9466,
+          "target_x": 9658,
+          "source_y": 384,
+          "target_y": 384
+        },
+        {
+          "source": "td-08e778",
+          "target": "td-0f7a34",
+          "epic": "td-0fcd1d",
+          "same_epic": true,
+          "shared_epic": "td-0fcd1d",
+          "direction": "right",
+          "source_x": 10636,
+          "target_x": 10842,
+          "source_y": 976,
+          "target_y": 986
+        },
+        {
+          "source": "td-0d409f",
+          "target": "td-98077c",
+          "epic": "td-d88b72",
+          "same_epic": true,
+          "shared_epic": "td-d88b72",
+          "direction": "right",
+          "source_x": 8666,
+          "target_x": 8866,
+          "source_y": 202,
+          "target_y": 127
+        },
+        {
+          "source": "td-127aad",
+          "target": "td-15dc18",
+          "epic": "td-d88b72",
+          "same_epic": true,
+          "shared_epic": "td-d88b72",
+          "direction": "right",
+          "source_x": 8066,
+          "target_x": 8266,
+          "source_y": 276,
+          "target_y": 227
+        },
+        {
+          "source": "td-15dc18",
+          "target": "td-0d409f",
+          "epic": "td-d88b72",
+          "same_epic": true,
+          "shared_epic": "td-d88b72",
+          "direction": "right",
+          "source_x": 8266,
+          "target_x": 8666,
+          "source_y": 227,
+          "target_y": 202
+        },
+        {
+          "source": "td-15dc18",
+          "target": "td-d1af30",
+          "epic": "td-d88b72",
+          "same_epic": true,
+          "shared_epic": "td-d88b72",
+          "direction": "right",
+          "source_x": 8266,
+          "target_x": 8466,
+          "source_y": 227,
+          "target_y": 185
+        },
+        {
+          "source": "td-1aa78a",
+          "target": "td-b05843",
+          "epic": "td-d88b72",
+          "same_epic": true,
+          "shared_epic": "td-d88b72",
+          "direction": "right",
+          "source_x": 7866,
+          "target_x": 8066,
+          "source_y": 77,
+          "target_y": 168
+        },
+        {
+          "source": "td-1aa78a",
+          "target": "td-c623f9",
+          "epic": "td-d88b72",
+          "same_epic": true,
+          "shared_epic": "td-d88b72",
+          "direction": "right",
+          "source_x": 7866,
+          "target_x": 8066,
+          "source_y": 77,
+          "target_y": 60
+        },
+        {
+          "source": "td-1d910c",
+          "target": "td-04365a",
+          "epic": "td-f136a9",
+          "same_epic": true,
+          "shared_epic": "td-f136a9",
+          "direction": "right",
+          "source_x": 6830,
+          "target_x": 7242,
+          "source_y": 168,
+          "target_y": 161
+        },
+        {
+          "source": "td-1d910c",
+          "target": "td-6283ed",
+          "epic": "td-f136a9",
+          "same_epic": true,
+          "shared_epic": "td-f136a9",
+          "direction": "right",
+          "source_x": 6830,
+          "target_x": 7042,
+          "source_y": 168,
+          "target_y": 318
+        },
+        {
+          "source": "td-1d9276",
+          "target": "td-d81c39",
+          "epic": "td-8db709",
+          "same_epic": true,
+          "shared_epic": "td-8db709",
+          "direction": "right",
+          "source_x": 24,
+          "target_x": 216,
+          "source_y": 168,
+          "target_y": 168
+        },
+        {
+          "source": "td-24dc3d",
+          "target": "td-ddf1d0",
+          "epic": "td-8d31c7",
+          "same_epic": true,
+          "shared_epic": "td-8d31c7",
+          "direction": "right",
+          "source_x": 3056,
+          "target_x": 3256,
+          "source_y": 293,
+          "target_y": 293
+        },
+        {
+          "source": "td-3be175",
+          "target": "td-0f7a34",
+          "epic": "td-0fcd1d",
+          "same_epic": true,
+          "shared_epic": "td-0fcd1d",
+          "direction": "right",
+          "source_x": 10636,
+          "target_x": 10842,
+          "source_y": 1084,
+          "target_y": 986
+        },
+        {
+          "source": "td-3cf0a7",
+          "target": "td-0ea8e4",
+          "epic": "td-f136a9",
+          "same_epic": true,
+          "shared_epic": "td-f136a9",
+          "direction": "right",
+          "source_x": 6624,
+          "target_x": 6830,
+          "source_y": 276,
+          "target_y": 276
+        },
+        {
+          "source": "td-3cf0a7",
+          "target": "td-1d910c",
+          "epic": "td-f136a9",
+          "same_epic": true,
+          "shared_epic": "td-f136a9",
+          "direction": "right",
+          "source_x": 6624,
+          "target_x": 6830,
+          "source_y": 276,
+          "target_y": 168
+        },
+        {
+          "source": "td-3cf0a7",
+          "target": "td-58e012",
+          "epic": "td-f136a9",
+          "same_epic": true,
+          "shared_epic": "td-f136a9",
+          "direction": "right",
+          "source_x": 6624,
+          "target_x": 7036,
+          "source_y": 276,
+          "target_y": 210
+        },
+        {
+          "source": "td-3cf0a7",
+          "target": "td-5edd77",
+          "epic": "td-f136a9",
+          "same_epic": true,
+          "shared_epic": "td-f136a9",
+          "direction": "right",
+          "source_x": 6624,
+          "target_x": 6842,
+          "source_y": 276,
+          "target_y": 393
+        },
+        {
+          "source": "td-3cf0a7",
+          "target": "td-8696df",
+          "epic": "td-f136a9",
+          "same_epic": true,
+          "shared_epic": "td-f136a9",
+          "direction": "right",
+          "source_x": 6624,
+          "target_x": 6836,
+          "source_y": 276,
+          "target_y": 60
+        },
+        {
+          "source": "td-3f7f83",
+          "target": "td-b647f0",
+          "epic": "td-9c3eca",
+          "same_epic": true,
+          "shared_epic": "td-9c3eca",
+          "direction": "right",
+          "source_x": 5832,
+          "target_x": 6024,
+          "source_y": 168,
+          "target_y": 168
+        },
+        {
+          "source": "td-3f9b8a",
+          "target": "td-0f7a34",
+          "epic": "td-0fcd1d",
+          "same_epic": true,
+          "shared_epic": "td-0fcd1d",
+          "direction": "right",
+          "source_x": 10642,
+          "target_x": 10842,
+          "source_y": 1192,
+          "target_y": 986
+        },
+        {
+          "source": "td-47d8fe",
+          "target": "td-725202",
+          "epic": "td-0ff984",
+          "same_epic": true,
+          "shared_epic": "td-0ff984",
+          "direction": "right",
+          "source_x": 11866,
+          "target_x": 12058,
+          "source_y": 60,
+          "target_y": 60
+        },
+        {
+          "source": "td-4ac8e2",
+          "target": "td-705432",
+          "epic": "td-8d31c7",
+          "same_epic": true,
+          "shared_epic": "td-8d31c7",
+          "direction": "right",
+          "source_x": 3056,
+          "target_x": 3256,
+          "source_y": 185,
+          "target_y": 168
+        },
+        {
+          "source": "td-4ac8e2",
+          "target": "td-ddf1d0",
+          "epic": "td-8d31c7",
+          "same_epic": true,
+          "shared_epic": "td-8d31c7",
+          "direction": "right",
+          "source_x": 3056,
+          "target_x": 3256,
+          "source_y": 185,
+          "target_y": 293
+        },
+        {
+          "source": "td-54c365",
+          "target": "td-57ac59",
+          "epic": "td-8db709",
+          "same_epic": true,
+          "shared_epic": "td-8db709",
+          "direction": "right",
+          "source_x": 216,
+          "target_x": 416,
+          "source_y": 276,
+          "target_y": 185
+        },
+        {
+          "source": "td-555671",
+          "target": "td-2056fc",
+          "epic": "td-f136a9",
+          "same_epic": true,
+          "shared_epic": "td-f136a9",
+          "direction": "right",
+          "source_x": 6432,
+          "target_x": 7434,
+          "source_y": 60,
+          "target_y": 60
+        },
+        {
+          "source": "td-58e012",
+          "target": "td-04365a",
+          "epic": "td-f136a9",
+          "same_epic": true,
+          "shared_epic": "td-f136a9",
+          "direction": "right",
+          "source_x": 7036,
+          "target_x": 7242,
+          "source_y": 210,
+          "target_y": 161
+        },
+        {
+          "source": "td-59cfa3",
+          "target": "td-419bd8",
+          "epic": "td-129a9c",
+          "same_epic": true,
+          "shared_epic": "td-129a9c",
+          "direction": "right",
+          "source_x": 4636,
+          "target_x": 4836,
+          "source_y": 445,
+          "target_y": 428
+        },
+        {
+          "source": "td-59cfa3",
+          "target": "td-d13f01",
+          "epic": "td-129a9c",
+          "same_epic": true,
+          "shared_epic": "td-129a9c",
+          "direction": "right",
+          "source_x": 4636,
+          "target_x": 4836,
+          "source_y": 445,
+          "target_y": 536
+        },
+        {
+          "source": "td-5edd77",
+          "target": "td-04365a",
+          "epic": "td-f136a9",
+          "same_epic": true,
+          "shared_epic": "td-f136a9",
+          "direction": "right",
+          "source_x": 6842,
+          "target_x": 7242,
+          "source_y": 393,
+          "target_y": 161
+        },
+        {
+          "source": "td-5edd77",
+          "target": "td-6283ed",
+          "epic": "td-f136a9",
+          "same_epic": true,
+          "shared_epic": "td-f136a9",
+          "direction": "right",
+          "source_x": 6842,
+          "target_x": 7042,
+          "source_y": 393,
+          "target_y": 318
+        },
+        {
+          "source": "td-5f2c56",
+          "target": "td-de5c58",
+          "epic": "td-129a9c",
+          "same_epic": true,
+          "shared_epic": "td-129a9c",
+          "direction": "right",
+          "source_x": 4444,
+          "target_x": 4636,
+          "source_y": 661,
+          "target_y": 661
+        },
+        {
+          "source": "td-6283ed",
+          "target": "td-2056fc",
+          "epic": "td-f136a9",
+          "same_epic": true,
+          "shared_epic": "td-f136a9",
+          "direction": "right",
+          "source_x": 7042,
+          "target_x": 7434,
+          "source_y": 318,
+          "target_y": 60
+        },
+        {
+          "source": "td-665cb0",
+          "target": "td-8f9607",
+          "epic": "td-129a9c",
+          "same_epic": true,
+          "shared_epic": "td-129a9c",
+          "direction": "right",
+          "source_x": 4836,
+          "target_x": 5028,
+          "source_y": 769,
+          "target_y": 769
+        },
+        {
+          "source": "td-74d4e3",
+          "target": "td-5008ad",
+          "epic": "td-e7abab",
+          "same_epic": true,
+          "shared_epic": "td-e7abab",
+          "direction": "right",
+          "source_x": 2048,
+          "target_x": 2240,
+          "source_y": 60,
+          "target_y": 60
+        },
+        {
+          "source": "td-7e46b4",
+          "target": "td-e1c868",
+          "epic": "td-129a9c",
+          "same_epic": true,
+          "shared_epic": "td-129a9c",
+          "direction": "right",
+          "source_x": 4444,
+          "target_x": 4636,
+          "source_y": 769,
+          "target_y": 769
+        },
+        {
+          "source": "td-7e6bb6",
+          "target": "td-df22f8",
+          "epic": "td-238d7c",
+          "same_epic": true,
+          "shared_epic": "td-238d7c",
+          "direction": "right",
+          "source_x": 3856,
+          "target_x": 4048,
+          "source_y": 60,
+          "target_y": 60
+        },
+        {
+          "source": "td-8696df",
+          "target": "td-04365a",
+          "epic": "td-f136a9",
+          "same_epic": true,
+          "shared_epic": "td-f136a9",
+          "direction": "right",
+          "source_x": 6836,
+          "target_x": 7242,
+          "source_y": 60,
+          "target_y": 161
+        },
+        {
+          "source": "td-8696df",
+          "target": "td-58e012",
+          "epic": "td-f136a9",
+          "same_epic": true,
+          "shared_epic": "td-f136a9",
+          "direction": "right",
+          "source_x": 6836,
+          "target_x": 7036,
+          "source_y": 60,
+          "target_y": 210
+        },
+        {
+          "source": "td-8f9607",
+          "target": "td-a2cbdc",
+          "epic": "td-129a9c",
+          "same_epic": true,
+          "shared_epic": "td-129a9c",
+          "direction": "right",
+          "source_x": 5028,
+          "target_x": 5220,
+          "source_y": 769,
+          "target_y": 769
+        },
+        {
+          "source": "td-8ffb54",
+          "target": "td-0f7a34",
+          "epic": "td-0fcd1d",
+          "same_epic": true,
+          "shared_epic": "td-0fcd1d",
+          "direction": "right",
+          "source_x": 10642,
+          "target_x": 10842,
+          "source_y": 868,
+          "target_y": 986
+        },
+        {
+          "source": "td-98077c",
+          "target": "td-7b8266",
+          "epic": "td-d88b72",
+          "same_epic": true,
+          "shared_epic": "td-d88b72",
+          "direction": "right",
+          "source_x": 8866,
+          "target_x": 9058,
+          "source_y": 127,
+          "target_y": 127
+        },
+        {
+          "source": "td-aac53a",
+          "target": "td-59cfa3",
+          "epic": "td-129a9c",
+          "same_epic": true,
+          "shared_epic": "td-129a9c",
+          "direction": "right",
+          "source_x": 4444,
+          "target_x": 4636,
+          "source_y": 445,
+          "target_y": 445
+        },
+        {
+          "source": "td-ac0234",
+          "target": "td-403f0f",
+          "epic": "td-238d7c",
+          "same_epic": true,
+          "shared_epic": "td-238d7c",
+          "direction": "right",
+          "source_x": 3856,
+          "target_x": 4056,
+          "source_y": 1243,
+          "target_y": 1226
+        },
+        {
+          "source": "td-ac0234",
+          "target": "td-cd9001",
+          "epic": "td-238d7c",
+          "same_epic": true,
+          "shared_epic": "td-238d7c",
+          "direction": "right",
+          "source_x": 3856,
+          "target_x": 4056,
+          "source_y": 1243,
+          "target_y": 1334
+        },
+        {
+          "source": "td-b05843",
+          "target": "td-15dc18",
+          "epic": "td-d88b72",
+          "same_epic": true,
+          "shared_epic": "td-d88b72",
+          "direction": "right",
+          "source_x": 8066,
+          "target_x": 8266,
+          "source_y": 168,
+          "target_y": 227
+        },
+        {
+          "source": "td-b05843",
+          "target": "td-d09ce6",
+          "epic": "td-d88b72",
+          "same_epic": true,
+          "shared_epic": "td-d88b72",
+          "direction": "right",
+          "source_x": 8066,
+          "target_x": 8266,
+          "source_y": 168,
+          "target_y": 110
+        },
+        {
+          "source": "td-b05843",
+          "target": "td-d1af30",
+          "epic": "td-d88b72",
+          "same_epic": true,
+          "shared_epic": "td-d88b72",
+          "direction": "right",
+          "source_x": 8066,
+          "target_x": 8466,
+          "source_y": 168,
+          "target_y": 185
+        },
+        {
+          "source": "td-bad415",
+          "target": "td-ddf1d0",
+          "epic": "td-8d31c7",
+          "same_epic": true,
+          "shared_epic": "td-8d31c7",
+          "direction": "right",
+          "source_x": 3056,
+          "target_x": 3256,
+          "source_y": 401,
+          "target_y": 293
+        },
+        {
+          "source": "td-c623f9",
+          "target": "td-d09ce6",
+          "epic": "td-d88b72",
+          "same_epic": true,
+          "shared_epic": "td-d88b72",
+          "direction": "right",
+          "source_x": 8066,
+          "target_x": 8266,
+          "source_y": 60,
+          "target_y": 110
+        },
+        {
+          "source": "td-d09ce6",
+          "target": "td-98077c",
+          "epic": "td-d88b72",
+          "same_epic": true,
+          "shared_epic": "td-d88b72",
+          "direction": "right",
+          "source_x": 8266,
+          "target_x": 8866,
+          "source_y": 110,
+          "target_y": 127
+        },
+        {
+          "source": "td-d13f01",
+          "target": "td-f1e108",
+          "epic": "td-129a9c",
+          "same_epic": true,
+          "shared_epic": "td-129a9c",
+          "direction": "right",
+          "source_x": 4836,
+          "target_x": 5028,
+          "source_y": 536,
+          "target_y": 536
+        },
+        {
+          "source": "td-d1af30",
+          "target": "td-0d409f",
+          "epic": "td-d88b72",
+          "same_epic": true,
+          "shared_epic": "td-d88b72",
+          "direction": "right",
+          "source_x": 8466,
+          "target_x": 8666,
+          "source_y": 185,
+          "target_y": 202
+        },
+        {
+          "source": "td-d40feb",
+          "target": "td-665cb0",
+          "epic": "td-129a9c",
+          "same_epic": true,
+          "shared_epic": "td-129a9c",
+          "direction": "right",
+          "source_x": 4636,
+          "target_x": 4836,
+          "source_y": 877,
+          "target_y": 769
+        },
+        {
+          "source": "td-d40feb",
+          "target": "td-aa8696",
+          "epic": "td-129a9c",
+          "same_epic": true,
+          "shared_epic": "td-129a9c",
+          "direction": "right",
+          "source_x": 4636,
+          "target_x": 4836,
+          "source_y": 877,
+          "target_y": 894
+        },
+        {
+          "source": "td-d81c39",
+          "target": "td-57ac59",
+          "epic": "td-8db709",
+          "same_epic": true,
+          "shared_epic": "td-8db709",
+          "direction": "right",
+          "source_x": 216,
+          "target_x": 416,
+          "source_y": 168,
+          "target_y": 185
+        },
+        {
+          "source": "td-ddf1d0",
+          "target": "td-b9dd46",
+          "epic": "td-8d31c7",
+          "same_epic": true,
+          "shared_epic": "td-8d31c7",
+          "direction": "right",
+          "source_x": 3256,
+          "target_x": 3448,
+          "source_y": 293,
+          "target_y": 293
+        },
+        {
+          "source": "td-de5c58",
+          "target": "td-665cb0",
+          "epic": "td-129a9c",
+          "same_epic": true,
+          "shared_epic": "td-129a9c",
+          "direction": "right",
+          "source_x": 4636,
+          "target_x": 4836,
+          "source_y": 661,
+          "target_y": 769
+        },
+        {
+          "source": "td-de5c58",
+          "target": "td-ed4b12",
+          "epic": "td-129a9c",
+          "same_epic": true,
+          "shared_epic": "td-129a9c",
+          "direction": "right",
+          "source_x": 4636,
+          "target_x": 4836,
+          "source_y": 661,
+          "target_y": 644
+        },
+        {
+          "source": "td-df22f8",
+          "target": "td-ce00e9",
+          "epic": "td-238d7c",
+          "same_epic": true,
+          "shared_epic": "td-238d7c",
+          "direction": "right",
+          "source_x": 4048,
+          "target_x": 4240,
+          "source_y": 60,
+          "target_y": 60
+        },
+        {
+          "source": "td-e1c868",
+          "target": "td-665cb0",
+          "epic": "td-129a9c",
+          "same_epic": true,
+          "shared_epic": "td-129a9c",
+          "direction": "right",
+          "source_x": 4636,
+          "target_x": 4836,
+          "source_y": 769,
+          "target_y": 769
+        },
+        {
+          "source": "td-f3c277",
+          "target": "td-8d9ad8",
+          "epic": "td-001db0",
+          "same_epic": true,
+          "shared_epic": "td-001db0",
+          "direction": "right",
+          "source_x": 11458,
+          "target_x": 11650,
+          "source_y": 168,
+          "target_y": 168
+        },
+        {
+          "source": "td-f6b46b",
+          "target": "td-3f9b8a",
+          "epic": "td-0fcd1d",
+          "same_epic": true,
+          "shared_epic": "td-0fcd1d",
+          "direction": "right",
+          "source_x": 10450,
+          "target_x": 10642,
+          "source_y": 1192,
+          "target_y": 1192
+        }
+      ]
+    },
+    "columns": {
+      "root_epics": [
+        {
+          "id": "epic:td-001db0",
+          "x": 11446,
+          "y": 16
+        },
+        {
+          "id": "epic:td-ea3ecb",
+          "x": 9454,
+          "y": 16
+        },
+        {
+          "id": "epic:td-f136a9",
+          "x": 6420,
+          "y": 16
+        },
+        {
+          "id": "epic:td-0fcd1d",
+          "x": 10438,
+          "y": 16
+        },
+        {
+          "id": "epic:td-238d7c",
+          "x": 3844,
+          "y": 16
+        },
+        {
+          "id": "epic:td-d88b72",
+          "x": 7854,
+          "y": 16
+        },
+        {
+          "id": "epic:td-8d31c7",
+          "x": 3044,
+          "y": 16
+        },
+        {
+          "id": "epic:td-8db709",
+          "x": 12,
+          "y": 16
+        },
+        {
+          "id": "epic:td-dfa7a1",
+          "x": 812,
+          "y": 16
+        },
+        {
+          "id": "epic:td-9c3eca",
+          "x": 5820,
+          "y": 16
+        },
+        {
+          "id": "epic:td-627ed0",
+          "x": 12478,
+          "y": 16
+        },
+        {
+          "id": "epic:td-bd6d1f",
+          "x": 12886,
+          "y": 16
+        },
+        {
+          "id": "epic:td-0ff984",
+          "x": 11854,
+          "y": 16
+        },
+        {
+          "id": "epic:td-166e2d",
+          "x": 12262,
+          "y": 16
+        },
+        {
+          "id": "epic:td-e7abab",
+          "x": 2036,
+          "y": 16
+        },
+        {
+          "id": "epic:td-8f738e",
+          "x": 1820,
+          "y": 16
+        },
+        {
+          "id": "epic:td-ec4364",
+          "x": 2636,
+          "y": 16
+        }
+      ],
+      "sibling_tops": [
+        {
+          "container": "root",
+          "tops": [
+            16,
+            16,
+            16,
+            16,
+            16,
+            16,
+            16,
+            16,
+            16,
+            16,
+            16,
+            16,
+            16,
+            16,
+            16,
+            16,
+            16
+          ]
+        },
+        {
+          "container": "epic:td-f136a9",
+          "tops": [
+            60
+          ]
+        },
+        {
+          "container": "epic:td-0fcd1d",
+          "tops": [
+            60
+          ]
+        },
+        {
+          "container": "epic:td-238d7c",
+          "tops": [
+            60
+          ]
+        },
+        {
+          "container": "epic:td-dfa7a1",
+          "tops": [
+            60
+          ]
+        }
+      ],
+      "acyclic_dependencies": 10,
+      "backward_acyclic": 0,
+      "cyclic_dependencies": 34
+    },
+    "page_ready_seconds": 1.647,
+    "initial_transform": {
+      "x": 16,
+      "y": 16,
+      "scale": 0.5
+    }
+  },
+  "area_change_percent": 211.05
+}
