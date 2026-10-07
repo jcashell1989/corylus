@@ -197,7 +197,7 @@
         for (let i = 0; i < ids.length; i++) adjacent.get(ids[i]).forEach(id => { if (!seen.has(id)) { seen.add(id); ids.push(id); } });
         components.push(ids);
       });
-      if (container.id !== 'root' && boxes.length) {
+      if (boxes.length) {
         // Contracting a local DAG can create a cycle through a nested box:
         // a -> b plus a -> N -> b becomes block(a,b) -> N -> block(a,b).
         // Refine only components in such a cycle; other DAGs retain their
@@ -262,7 +262,11 @@
       // ordered() uses ancestry, so provide temporary component ancestry only here.
       const restore = new Map();
       blocks.forEach(n => { if (!ancestry.has(n.id)) { restore.set(n.id, undefined); ancestry.set(n.id, [...(ancestry.get(container.id) || []), container.id]); } });
-      const orderedBlocks = ordered([...laidBoxes, ...blocks].sort((a, b) => b.width - a.width), container.id, projected);
+      // Keep page epics ahead of unrelated leaf DAGs, as in the original
+      // framing. Dependency ordering still moves a prerequisite before its box.
+      const candidates = [...laidBoxes, ...blocks];
+      if (container.id !== 'root') candidates.sort((a, b) => b.width - a.width);
+      const orderedBlocks = ordered(candidates, container.id, projected);
       restore.forEach((value, id) => { if (value === undefined) ancestry.delete(id); });
       // A dependency between a local DAG and a nested epic must keep flowing
       // RIGHT too. Wrap unrelated groups, never split a linked group into rows.
@@ -300,10 +304,10 @@
       // first so their short neighbors do not create mostly empty extra rows.
       if (container.id !== 'root') rows.sort((a, b) =>
         Math.max(...b.map(n => n.height)) - Math.max(...a.map(n => n.height)));
-      // A linked row may be wider than the viewport. Use that natural width
-      // for the other rows too, rather than leaving most of the canvas empty.
+      // Nested linked rows may widen their container. At the page, an oversized
+      // leaf DAG must not change how unrelated epics wrap to the viewport.
       const rowWidths = rows.map(row => row.reduce((sum, block) => sum + block.width, 0) + gap * (row.length - 1));
-      const packingWidth = Math.max(width, ...rowWidths.map(w => w + padding * 2));
+      const packingWidth = container.id === 'root' ? width : Math.max(width, ...rowWidths.map(w => w + padding * 2));
       let x = padding, y = top, rowHeight = 0, right = padding;
       const children = [], edges = [];
       rows.forEach((row, i) => {

@@ -99,7 +99,41 @@ def contains(outer, inner):
 def wait_graph(page):
     expect(page.locator("#refresh")).to_be_enabled()
     expect(page.locator(".node-card, .epic-boundary").first).to_be_visible()
+    page.wait_for_function("""() => {
+      const shapes=[...document.querySelectorAll('.node-card, .epic-boundary')];
+      return shapes.length && shapes.every(node => {
+        const r=node.getBBox();
+        return r.width>0 && r.height>0;
+      });
+    }""")
     expect(page.locator("#messages")).not_to_contain_text("Graph layout failed")
+
+
+def capture_bounds(page, selectors, edge_count):
+    """Wait for completed geometry and capture every bound in one browser turn.
+
+    A visible first card does not guarantee the other SVG shapes have computed
+    bounds. Return the checked snapshot from the wait itself so a redraw cannot
+    invalidate bounds between independent locator calls.
+    """
+    handle = page.wait_for_function("""({selectors,edgeCount}) => {
+      const edges=[...document.querySelectorAll('.graph-edge')];
+      if (edges.length!==edgeCount || edges.some(edge=>!edge.getAttribute('d'))) return false;
+      const result={};
+      for (const [id,selector] of Object.entries(selectors)) {
+        const node=document.querySelector(selector);
+        if (!node) return false;
+        const r=node.getBBox(), m=node.transform?.baseVal.consolidate()?.matrix;
+        const bound={x:r.x+(m?.e||0),y:r.y+(m?.f||0),width:r.width,height:r.height};
+        if (!Object.values(bound).every(Number.isFinite) || bound.width<=0 || bound.height<=0) return false;
+        result[id]=bound;
+      }
+      return result;
+    }""", arg={"selectors": selectors, "edgeCount": edge_count})
+    try:
+        return handle.json_value()
+    finally:
+        handle.dispose()
 
 
 def check_fixture(browser, screenshots):
@@ -213,22 +247,88 @@ def check_fixture(browser, screenshots):
             expect(page.locator(".ticket-row")).to_have_count(5)
             wait_graph(page)
             assert not page.evaluate("data => FlowModel.prepare(data).hasCycle", diamond)
-            e, n = (bounds(page, epic_selector(key)) for key in ("E", "N"))
+            geometry = capture_bounds(page, {
+                **{key: epic_selector(key) for key in ("E", "N")},
+                **{key: card_selector(key) for key in ("a", "b", "n")},
+            }, 3)
+            e, n = geometry["E"], geometry["N"]
             assert contains(e, n)
-            assert contains(n, bounds(page, card_selector("n")))
+            assert contains(n, geometry["n"])
             for key in ("a", "b"):
-                assert contains(e, bounds(page, card_selector(key)))
+                assert contains(e, geometry[key])
             expect(page.locator(".graph-edge")).to_have_count(3)
             for source, target in (("a", "b"), ("a", "n"), ("n", "b")):
                 expect(page.locator(
                     f'.graph-edge[data-source="{source}"][data-target="{target}"]',
                 )).to_have_count(1)
-                assert bounds(page, card_selector(source))["x"] < bounds(page, card_selector(target))["x"], (
+                assert geometry[source]["x"] < geometry[target]["x"], (
                     f"Acyclic diamond {source} -> {target} must flow right at width {width}")
             direction = direction_metrics(page, diamond)
             assert direction["shared_epic"] == {"right": 3, "left": 0, "vertical": 0}, direction
             page.screenshot(path=str(screenshots / f"horizontal-diamond-{width}.png"), full_page=True)
         print("PASS acyclic outer/nested diamond, a.x < n.x < b.x, containment and all three routes at 1400/450")
+    mixed = payload([
+        ticket("E1", kind="epic"), ticket("e1", parent="E1"),
+        ticket("E2", kind="epic"), ticket("e2", parent="E2"),
+        *[ticket(f"u{i}", dependencies=[f"u{i-1}"] if i else []) for i in range(6)],
+        ticket("shelf"),
+    ])
+    with server_for(mixed) as url:
+        for width in (1400, 450):
+            page.set_viewport_size({"width": width, "height": 1050})
+            page.goto(url)
+            expect(page.locator(".ticket-row")).to_have_count(11)
+            wait_graph(page)
+            geometry = capture_bounds(page, {
+                **{key: epic_selector(key) for key in ("E1", "E2")},
+                **{key: card_selector(key) for key in ("e1", "e2", "u0", "u5")},
+            }, 5)
+            first, second = geometry["E1"], geometry["E2"]
+            assert first["y"] == 16, "Unrelated wide chain must preserve the top epic anchor"
+            assert contains(first, geometry["e1"]) and contains(second, geometry["e2"])
+            assert geometry["u0"]["y"] >= max(
+                first["y"] + first["height"], second["y"] + second["height"],
+            ), "Unrelated wide chain must follow the epic rows"
+            assert geometry["u0"]["x"] < geometry["u5"]["x"]
+            if width == 1400:
+                assert first["y"] == second["y"]
+            else:
+                assert second["y"] > first["y"] and second["x"] == first["x"], (
+                    "Root epics must wrap using viewport width despite the overflowing chain")
+            expect(page.locator('#independent-list [data-ticket="shelf"]')).to_have_count(1)
+            expect(page.locator('#independent-list [data-ticket]')).to_have_count(1)
+            page.screenshot(path=str(screenshots / f"mixed-root-{width}.png"), full_page=True)
+        print("PASS mixed root epics/no-epic chain, top anchors, viewport wrapping, containment and shelf")
+    root_diamond = payload([
+        ticket("a"), ticket("b", dependencies=["a", "n"]),
+        ticket("N", kind="epic"), ticket("n", parent="N", dependencies=["a"]),
+    ])
+    with server_for(root_diamond) as url:
+        for width in (1400, 450):
+            page.set_viewport_size({"width": width, "height": 1050})
+            page.goto(url)
+            expect(page.locator(".ticket-row")).to_have_count(4)
+            wait_graph(page)
+            geometry = capture_bounds(page, {
+                "N": epic_selector("N"),
+                **{key: card_selector(key) for key in ("a", "b", "n")},
+            }, 3)
+            assert contains(geometry["N"], geometry["n"])
+            assert not page.evaluate("data => FlowModel.prepare(data).hasCycle", root_diamond)
+            for source, target in (("a", "b"), ("a", "n"), ("n", "b")):
+                expect(page.locator(
+                    f'.graph-edge[data-source="{source}"][data-target="{target}"]',
+                )).to_have_count(1)
+                if width == 1400:
+                    assert geometry[source]["x"] < geometry[target]["x"], (
+                        f"Page diamond {source} -> {target} must flow right on desktop")
+            for source, target in (("a", "N"), ("N", "b"), ("a", "b")):
+                a, b = geometry[source], geometry[target]
+                assert b["y"] > a["y"] or (b["y"] == a["y"] and b["x"] > a["x"]), (
+                    f"Page diamond {source} -> {target} must preserve wrapped reading order")
+            expect(page.locator('#independent-list [data-ticket]')).to_have_count(0)
+            page.screenshot(path=str(screenshots / f"page-diamond-{width}.png"), full_page=True)
+        print("PASS page-level diamond, desktop horizontal and narrow wrapped order, containment and all routes")
     umbrella = payload([
         ticket("umbrella", kind="epic"),
         ticket("a", kind="epic", parent="umbrella"), ticket("a1", parent="a"),

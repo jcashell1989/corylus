@@ -20,10 +20,10 @@ bounds. Cards and epic labels retain their dimensions.
 | Cards / epic boxes / sidebar cards | 184 / 21 / 39 | 184 / 21 / 39 |
 | Immediate-epic edges right / left / vertical | 60 / 1 / 1 | 62 / 0 / 0 |
 | Shared rendered epic ancestor edges right / left / vertical | 62 / 3 / 1 | 66 / 0 / 0 |
-| Rendered bounds | 1408 × 6392 | 1584 × 5800 |
-| Rendered area | 8,999,936 | 9,187,200 (+2.08%) |
+| Rendered bounds | 1408 × 6392 | 1584 × 5852 |
+| Rendered area | 8,999,936 | 9,269,568 (+3.00%) |
 
-The unchanged compactness gate allows at most 5% area growth. All 72 JavaScript
+The unchanged compactness gate allows at most 5% area growth. All 74 JavaScript
 tests, the Python suite (72 tests, one scheduled-export restriction skip), Ruff,
 ESLint, and both Chromium suites pass. New direction tests fail twice against
 the baseline and pass with the fix; nested containment, sidebar membership,
@@ -40,19 +40,43 @@ ELK and Chromium regressions at widths 1400 and 450 require a.x < n.x < b.x,
 all three routes, and nested containment. Before: a.x=24, n.x=420, b.x=216;
 after: a.x=24, n.x=228, b.x=432. Diamond bounds remain 640 × 228.
 
-The snapshot gate now includes dependencies across nested boxes with a shared
+The snapshot gate includes dependencies across nested boxes with a shared
 rendered epic ancestor. Flattened umbrella page frames retain their intentional
-root-row wrapping. The refreshed round 2 snapshot comparison passes that gate
-and preserves the original area and node/path counts.
+root-row wrapping. The refreshed round 3 snapshot comparison passes that gate
+and preserves all node/path counts within the unchanged area gate.
 
-![Focused before](round2/homelab-td-f136a9-before.png)
-![Focused after](round2/homelab-td-f136a9-after.png)
+Round 2 review found that an unrelated six-card no-epic chain displaced two
+epics from y=16 to y=124 and widened their wrapping budget at width 450. Root
+packing now retains boxes-first priority and uses the viewport width even when
+an unrelated DAG overflows. Dependencies still determine prerequisite order.
+ELK and Chromium fixtures require the first epic at y=16, both epics in the
+desktop top row, the second epic on a new narrow row, and all chain routes.
 
-[Full before](round2/homelab-before.png), [full after](round2/homelab-after.png),
-[initial framing after](round2/homelab-after-initial.png),
-[machine-readable metrics](round2/homelab-layout-metrics.json),
-[desktop diamond](round2/horizontal-diamond-1400.png),
-[narrow diamond](round2/horizontal-diamond-450.png).
+The page-level diamond a → b, a → N(n), n → b also needs component refinement.
+Before, n.x=408 exceeded b.x=204. Root refinement now places a.x=12, n.x=216,
+b.x=420 at width 1400. At width 450, root blocks wrap in prerequisite order
+a, N(n), b. Three routes and containment remain verified in both renderers.
+
+The browser diamond check now waits for nonzero geometry and all routes, then
+captures related bounds in one browser turn. Three repeated full layout-fixture
+runs verify the former transient zero-size boundary failure.
+
+Required viewer Ruff/ESLint checks pass. An additional repository-wide Ruff
+check reports 28 existing findings in five unchanged legacy files and none in
+the changed files; those are outside this ticket's scope.
+
+![Focused before](round3/homelab-td-f136a9-before.png)
+![Focused after](round3/homelab-td-f136a9-after.png)
+
+[Full before](round3/homelab-before.png), [full after](round3/homelab-after.png),
+[initial framing after](round3/homelab-after-initial.png),
+[machine-readable metrics](round3/homelab-layout-metrics.json),
+[desktop nested diamond](round3/horizontal-diamond-1400.png),
+[narrow nested diamond](round3/horizontal-diamond-450.png),
+[desktop page diamond](round3/page-diamond-1400.png),
+[narrow page diamond](round3/page-diamond-450.png),
+[desktop mixed root](round3/mixed-root-1400.png),
+[narrow mixed root](round3/mixed-root-450.png).
 
 Root epic rows retain dependency order and wrap to the viewport. Cross-epic
 arrows can span rows; cyclic relationships cannot all point right. Orthogonal

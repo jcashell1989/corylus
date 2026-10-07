@@ -352,6 +352,54 @@ test('direct outer dependency and nested detour keep an acyclic diamond horizont
   }
 });
 
+test('unrelated wide no-epic DAG keeps epics first and root wrapping bounded to the viewport', async () => {
+  const view = model.prepare({
+    tickets: [ticket('E1', { type: 'epic' }), ticket('E2', { type: 'epic' }),
+      ticket('e1', { parent_id: 'E1' }), ticket('e2', { parent_id: 'E2' }),
+      ...Array.from({ length: 6 }, (_, i) => ticket(`u${i}`)), ticket('shelf')],
+    edges: Array.from({ length: 5 }, (_, i) => ({ source: `u${i}`, target: `u${i + 1}` }))
+  });
+  for (const width of [1400, 450]) {
+    const layout = await model.layout(view.graph, elk, width);
+    assertTopology(view, layout);
+    const positions = absoluteNodes(layout);
+    const first = positions.get('epic:E1'), second = positions.get('epic:E2');
+    assert.equal(first.y, 16, 'Unrelated wide DAG must not displace the first epic from the top');
+    assert(positions.get('u0').y >= Math.max(first.y + first.height, second.y + second.height),
+      'Unrelated no-epic DAG belongs after the root epic rows');
+    if (width === 1400) assert.equal(second.y, first.y, 'Desktop epics share the top row');
+    else {
+      assert(second.y > first.y, 'Root epic wrapping must use viewport width, not wide DAG width');
+      assert.equal(second.x, first.x, 'Wrapped epic row restarts at the left');
+    }
+    assertHorizontal(layout, view.visibleEdges.map(edge => [edge.source, edge.target]));
+    assert.deepEqual(view.independent.map(node => node.id), ['shelf']);
+  }
+});
+
+test('page-level diamond splits contracted DAG and preserves dependency order across root wrapping', async () => {
+  const view = model.prepare({
+    tickets: [ticket('a'), ticket('b'), ticket('N', { type: 'epic' }),
+      ticket('n', { parent_id: 'N' })],
+    edges: [{ source: 'a', target: 'b' }, { source: 'a', target: 'n' },
+      { source: 'n', target: 'b' }]
+  });
+  assert.equal(view.hasCycle, false);
+  for (const width of [1400, 450]) {
+    const layout = await model.layout(view.graph, elk, width);
+    assertTopology(view, layout);
+    const positions = absoluteNodes(layout);
+    if (width === 1400) assertHorizontal(layout, view.visibleEdges.map(edge => [edge.source, edge.target]));
+    else for (const [source, target] of [['a', 'epic:N'], ['epic:N', 'b'], ['a', 'b']]) {
+      const a = positions.get(source), b = positions.get(target);
+      assert(b.y > a.y || b.y === a.y && b.x > a.x,
+        `${source} prerequisite must precede ${target} in wrapped root reading order`);
+    }
+    assert.equal(edgesOf(layout).length, 3, 'Every page diamond route must survive');
+    assert.deepEqual(view.independent, [], 'Connected no-epic tickets stay on the graph');
+  }
+});
+
 test('cycles across epic boundaries remain routed and visible in the real ELK layout', async () => {
   const view = model.prepare({
     tickets: [
