@@ -14,8 +14,8 @@
     'elk.edgeRouting': 'ORTHOGONAL',
     'elk.layered.nodePlacement.strategy': 'NETWORK_SIMPLEX',
     'elk.layered.compaction.postCompaction.strategy': 'EDGE_LENGTH',
-    'elk.spacing.nodeNode': '16',
-    'elk.layered.spacing.nodeNodeBetweenLayers': '16',
+    'elk.spacing.nodeNode': '8',
+    'elk.layered.spacing.nodeNodeBetweenLayers': '8',
     'elk.spacing.edgeNode': '8',
     'elk.spacing.edgeEdge': '6',
     'elk.layered.spacing.edgeNodeBetweenLayers': '8',
@@ -176,23 +176,80 @@
       const placed = new Set(result.map(n => n.id));
       return [...result, ...items.filter(n => !placed.has(n.id))];
     }
-    async function place(container, width) {
-      const top = container.id === 'root' ? 16 : 44, padding = 12, gap = 16;
+    const placements = new Map();
+    function place(container, width) {
+      const key = `${container.id}\0${width}`;
+      if (!placements.has(key)) placements.set(key, pack(container, width));
+      return placements.get(key);
+    }
+    async function pack(container, width) {
+      const top = container.id === 'root' ? 16 : 44, padding = 12, gap = 8, bottom = 8;
       const nodes = container.children || [], leaves = nodes.filter(n => !n.children), boxes = nodes.filter(n => n.children);
       const leafById = new Map(leaves.map(n => [n.id, n]));
       const links = allEdges.filter(e => leafById.has(e.sources[0]) && leafById.has(e.targets[0]));
       const adjacent = new Map(leaves.map(n => [n.id, []]));
       links.forEach(e => { adjacent.get(e.sources[0]).push(e.targets[0]); adjacent.get(e.targets[0]).push(e.sources[0]); });
-      const seen = new Set(), components = [];
+      const seen = new Set();
+      let components = [];
       leaves.forEach(n => {
         if (seen.has(n.id)) return;
         const ids = [n.id]; seen.add(n.id);
         for (let i = 0; i < ids.length; i++) adjacent.get(ids[i]).forEach(id => { if (!seen.has(id)) { seen.add(id); ids.push(id); } });
         components.push(ids);
       });
+      if (boxes.length) {
+        // Contracting a local DAG can create a cycle through a nested box:
+        // a -> b plus a -> N -> b becomes block(a,b) -> N -> block(a,b).
+        // Refine only components in such a cycle; other DAGs retain their
+        // compact ELK layout instead of turning every leaf into a wide row.
+        const owner = new Map(boxes.map(n => [n.id, n.id]));
+        components.forEach((ids, i) => ids.forEach(id => owner.set(id, i)));
+        const outgoing = new Map([...owner.values()].map(id => [id, new Set()]));
+        const incoming = new Map([...outgoing.keys()].map(id => [id, new Set()]));
+        allEdges.forEach(e => {
+          const a = owner.get(childOf(e.sources[0], container.id));
+          const b = owner.get(childOf(e.targets[0], container.id));
+          if (a !== b && outgoing.has(a) && outgoing.has(b)) {
+            outgoing.get(a).add(b); incoming.get(b).add(a);
+          }
+        });
+        function reachable(id, neighbors) {
+          const visited = new Set([id]), queue = [id];
+          for (let i = 0; i < queue.length; i++) neighbors.get(queue[i]).forEach(next => {
+            if (!visited.has(next)) { visited.add(next); queue.push(next); }
+          });
+          return visited;
+        }
+        const split = new Set();
+        boxes.forEach(box => {
+          const before = reachable(box.id, incoming), after = reachable(box.id, outgoing);
+          before.forEach(id => { if (typeof id === 'number' && after.has(id)) split.add(id); });
+        });
+        if (split.size) {
+          // Each slice occupies the interval between nested boxes in a
+          // topological order of the uncontracted children. Local edges stay
+          // inside a slice when possible; edges crossing slices route below.
+          const slots = new Map();
+          let slot = 0;
+          ordered(nodes, container.id).forEach(n => {
+            if (n.children) slot++;
+            else slots.set(n.id, slot);
+          });
+          components = components.flatMap((ids, i) => {
+            if (!split.has(i)) return [ids];
+            const slices = new Map();
+            ids.forEach(id => {
+              const key = slots.get(id);
+              if (!slices.has(key)) slices.set(key, []);
+              slices.get(key).push(id);
+            });
+            return [...slices.values()];
+          });
+        }
+      }
       const laidBoxes = await Promise.all(boxes.map(n => place(n, width - padding * 2)));
       const blocks = await Promise.all(components.map(async ids => {
-        const members = new Set(ids), edges = links.filter(e => members.has(e.sources[0]));
+        const members = new Set(ids), edges = links.filter(e => members.has(e.sources[0]) && members.has(e.targets[0]));
         edges.forEach(e => localEdges.add(e.id));
         if (ids.length === 1 && !edges.length) return { ...leafById.get(ids[0]), members: ids };
         const laid = await elk.layout({ id: `dag:${ids[0]}`, layoutOptions: { ...LAYOUT_OPTIONS, 'elk.hierarchyHandling': 'SEPARATE_CHILDREN', 'elk.padding': '[top=0,left=0,bottom=0,right=0]' }, children: ids.map(id => ({ ...leafById.get(id) })), edges: edges.map(e => ({ ...e })) });
@@ -205,19 +262,65 @@
       // ordered() uses ancestry, so provide temporary component ancestry only here.
       const restore = new Map();
       blocks.forEach(n => { if (!ancestry.has(n.id)) { restore.set(n.id, undefined); ancestry.set(n.id, [...(ancestry.get(container.id) || []), container.id]); } });
-      const orderedBlocks = ordered([...laidBoxes, ...blocks], container.id, projected);
+      // Keep page epics ahead of unrelated leaf DAGs, as in the original
+      // framing. Dependency ordering still moves a prerequisite before its box.
+      const candidates = [...laidBoxes, ...blocks];
+      if (container.id !== 'root') candidates.sort((a, b) => b.width - a.width);
+      const orderedBlocks = ordered(candidates, container.id, projected);
       restore.forEach((value, id) => { if (value === undefined) ancestry.delete(id); });
+      // A dependency between a local DAG and a nested epic must keep flowing
+      // RIGHT too. Wrap unrelated groups, never split a linked group into rows.
+      // The page still wraps epic boxes in dependency order to fit the viewport.
+      const blockById = new Map(orderedBlocks.map(n => [n.id, n]));
+      const rank = new Map(orderedBlocks.map((n, i) => [n.id, i]));
+      const neighbors = new Map(orderedBlocks.map(n => [n.id, []]));
+      if (container.id !== 'root') projected.forEach(e => {
+        const a = e.sources[0], b = e.targets[0];
+        if (a !== b && neighbors.has(a) && neighbors.has(b)) {
+          neighbors.get(a).push(b); neighbors.get(b).push(a);
+        }
+      });
+      const grouped = new Set(), rows = [];
+      orderedBlocks.forEach(block => {
+        if (grouped.has(block.id)) return;
+        const ids = [block.id]; grouped.add(block.id);
+        for (let i = 0; i < ids.length; i++) neighbors.get(ids[i]).forEach(id => {
+          if (!grouped.has(id)) { grouped.add(id); ids.push(id); }
+        });
+        rows.push(ids.sort((a, b) => rank.get(a) - rank.get(b)).map(id => blockById.get(id)));
+      });
+      // Give nested boxes the space remaining beside their prerequisites.
+      // Their unrelated members can wrap internally without bending the
+      // dependency between the boxes into a vertical row.
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i], nested = row.filter(n => n.children && !n.members);
+        const fixedWidth = row.filter(n => !nested.includes(n)).reduce((sum, n) => sum + n.width, 0);
+        const budget = Math.max(NODE_WIDTH + padding * 2,
+          (width - padding * 2 - fixedWidth - gap * (row.length - 1)) / Math.max(1, nested.length));
+        rows[i] = await Promise.all(row.map(n => budget < width - padding * 2 && nested.includes(n) && n.width > budget
+          ? place(n, budget) : n));
+      }
+      // Independent groups have no ordering constraint. Pack taller groups
+      // first so their short neighbors do not create mostly empty extra rows.
+      if (container.id !== 'root') rows.sort((a, b) =>
+        Math.max(...b.map(n => n.height)) - Math.max(...a.map(n => n.height)));
+      // Nested linked rows may widen their container. At the page, an oversized
+      // leaf DAG must not change how unrelated epics wrap to the viewport.
+      const rowWidths = rows.map(row => row.reduce((sum, block) => sum + block.width, 0) + gap * (row.length - 1));
+      const packingWidth = container.id === 'root' ? width : Math.max(width, ...rowWidths.map(w => w + padding * 2));
       let x = padding, y = top, rowHeight = 0, right = padding;
       const children = [], edges = [];
-      orderedBlocks.forEach(block => {
-        if (x > padding && x + block.width + padding > width) { x = padding; y += rowHeight + gap; rowHeight = 0; }
-        if (block.members && block.children) {
-          block.children.forEach(n => children.push({ ...n, x: x + n.x, y: y + n.y }));
-          (block.edges || []).forEach(e => edges.push({ ...e, container: container.id, sections: (e.sections || []).map(s => ({ ...s, startPoint: { x: s.startPoint.x + x, y: s.startPoint.y + y }, endPoint: { x: s.endPoint.x + x, y: s.endPoint.y + y }, bendPoints: (s.bendPoints || []).map(p => ({ x: p.x + x, y: p.y + y })) })) }));
-        } else { const node = { ...block }; delete node.members; children.push({ ...node, x, y }); }
-        right = Math.max(right, x + block.width); rowHeight = Math.max(rowHeight, block.height); x += block.width + gap;
+      rows.forEach((row, i) => {
+        if (x > padding && x + rowWidths[i] + padding > packingWidth) { x = padding; y += rowHeight + gap; rowHeight = 0; }
+        row.forEach(block => {
+          if (block.members && block.children) {
+            block.children.forEach(n => children.push({ ...n, x: x + n.x, y: y + n.y }));
+            (block.edges || []).forEach(e => edges.push({ ...e, container: container.id, sections: (e.sections || []).map(s => ({ ...s, startPoint: { x: s.startPoint.x + x, y: s.startPoint.y + y }, endPoint: { x: s.endPoint.x + x, y: s.endPoint.y + y }, bendPoints: (s.bendPoints || []).map(p => ({ x: p.x + x, y: p.y + y })) })) }));
+          } else { const node = { ...block }; delete node.members; children.push({ ...node, x, y }); }
+          right = Math.max(right, x + block.width); rowHeight = Math.max(rowHeight, block.height); x += block.width + gap;
+        });
       });
-      return { ...container, children, edges, width: Math.max(NODE_WIDTH + padding * 2, right + padding), height: Math.max(top + 16, y + rowHeight + 16) };
+      return { ...container, children, edges, width: Math.max(NODE_WIDTH + padding * 2, right + padding), height: Math.max(top + bottom, y + rowHeight + bottom) };
     }
     const result = await place(graph, available);
     const positions = new Map();

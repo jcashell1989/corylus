@@ -52,6 +52,28 @@ function nodesOf(graph) {
   return (graph.children || []).flatMap(node => [node, ...nodesOf(node)]);
 }
 
+function absoluteNodes(graph) {
+  const positions = new Map();
+  function visit(node, x = 0, y = 0) {
+    x += node.x || 0; y += node.y || 0;
+    positions.set(node.id, { ...node, x, y });
+    (node.children || []).forEach(child => visit(child, x, y));
+  }
+  visit(graph);
+  return positions;
+}
+
+function assertHorizontal(layout, pairs) {
+  const positions = absoluteNodes(layout);
+  for (const [source, target] of pairs) {
+    const a = positions.get(source) || positions.get(`epic:${source}`);
+    const b = positions.get(target) || positions.get(`epic:${target}`);
+    assert(a && b, `${source} and ${target} must remain visible`);
+    assert(a.x < b.x,
+      `${source} prerequisite x=${a.x} must precede ${target} dependent x=${b.x}`);
+  }
+}
+
 function edgesOf(graph) {
   return [graph, ...nodesOf(graph)].flatMap(node => node.edges || []);
 }
@@ -218,6 +240,166 @@ test('disconnected dependency components pack without overlapping epics or unass
   assert(layout.children.find(node => node.id === 'epic:epic-a').children.some(node => node.id === 'independent'));
 });
 
+test('real ELK lays out prerequisites left of dependents within root and nested epics', async () => {
+  const view = model.prepare({
+    tickets: [
+      ticket('root-epic', { type: 'epic' }),
+      ticket('nested-epic', { type: 'epic', parent_id: 'root-epic' }),
+      ...['root-first', 'root-second', 'root-third'].map(id => ticket(id, { parent_id: 'root-epic' })),
+      ...['nested-first', 'nested-second', 'nested-third'].map(id => ticket(id, { parent_id: 'nested-epic' }))
+    ],
+    edges: [
+      { source: 'root-first', target: 'root-second' },
+      { source: 'root-second', target: 'root-third' },
+      { source: 'nested-first', target: 'nested-second' },
+      { source: 'nested-second', target: 'nested-third' }
+    ]
+  });
+  for (const width of [1400, 450]) {
+    const layout = await model.layout(view.graph, elk, width);
+    assertTopology(view, layout);
+    assertHorizontal(layout, view.visibleEdges.map(edge => [edge.source, edge.target]));
+  }
+});
+
+test('root epic dependencies flow horizontally on desktop and preserve order when wrapping', async () => {
+  const view = model.prepare({
+    tickets: [
+      ticket('source-epic', { type: 'epic' }), ticket('target-epic', { type: 'epic' }),
+      ticket('source', { parent_id: 'source-epic' }),
+      ticket('target', { parent_id: 'target-epic' })
+    ],
+    edges: [{ source: 'source', target: 'target' }]
+  });
+  for (const width of [1400, 450]) {
+    const layout = await model.layout(view.graph, elk, width);
+    assertTopology(view, layout);
+    const positions = absoluteNodes(layout);
+    const source = positions.get('epic:source-epic'), target = positions.get('epic:target-epic');
+    if (width === 1400) {
+      assertHorizontal(layout, [['epic:source-epic', 'epic:target-epic'], ['source', 'target']]);
+    } else {
+      assert(target.y > source.y || target.y === source.y && target.x > source.x,
+        'Wrapped root epics must preserve prerequisite-before-dependent reading order');
+    }
+  }
+});
+
+test('dependencies between nested sibling epic boxes induce horizontal ordering across blocks', async () => {
+  const view = model.prepare({
+    tickets: [
+      ticket('root-epic', { type: 'epic' }),
+      // Two direct members preserve this epic as a box instead of an umbrella frame.
+      ticket('unlinked-one', { parent_id: 'root-epic' }),
+      ticket('unlinked-two', { parent_id: 'root-epic' }),
+      ticket('target-epic', { type: 'epic', parent_id: 'root-epic' }),
+      ticket('source-epic', { type: 'epic', parent_id: 'root-epic' }),
+      ticket('source', { parent_id: 'source-epic' }),
+      ticket('target', { parent_id: 'target-epic' })
+    ],
+    edges: [{ source: 'source', target: 'target' }]
+  });
+  for (const width of [1400, 450]) {
+    const layout = await model.layout(view.graph, elk, width);
+    assertTopology(view, layout);
+    assertHorizontal(layout, [['epic:source-epic', 'epic:target-epic'], ['source', 'target']]);
+  }
+});
+
+test('dependencies through a nested epic keep disconnected local components in horizontal order', async () => {
+  const view = model.prepare({
+    tickets: [
+      ticket('root-epic', { type: 'epic' }),
+      ticket('nested-epic', { type: 'epic', parent_id: 'root-epic' }),
+      ticket('target', { parent_id: 'root-epic' }),
+      ticket('source', { parent_id: 'root-epic' }),
+      ticket('nested-source', { parent_id: 'nested-epic' }),
+      ticket('nested-target', { parent_id: 'nested-epic' })
+    ],
+    edges: [
+      { source: 'source', target: 'nested-source' },
+      { source: 'source', target: 'nested-epic' },
+      { source: 'nested-source', target: 'nested-target' },
+      { source: 'nested-target', target: 'target' },
+      { source: 'nested-epic', target: 'target' }
+    ]
+  });
+  for (const width of [1400, 450]) {
+    const layout = await model.layout(view.graph, elk, width);
+    assertTopology(view, layout);
+    assertHorizontal(layout, view.visibleEdges.map(edge => [edge.source, edge.target]));
+  }
+});
+
+test('direct outer dependency and nested detour keep an acyclic diamond horizontal', async () => {
+  const view = model.prepare({
+    tickets: [
+      ticket('E', { type: 'epic' }),
+      ticket('a', { parent_id: 'E' }), ticket('b', { parent_id: 'E' }),
+      ticket('N', { type: 'epic', parent_id: 'E' }), ticket('n', { parent_id: 'N' })
+    ],
+    edges: [
+      { source: 'a', target: 'b' }, { source: 'a', target: 'n' },
+      { source: 'n', target: 'b' }
+    ]
+  });
+  assert.equal(view.hasCycle, false);
+  for (const width of [1400, 450]) {
+    const layout = await model.layout(view.graph, elk, width);
+    assertTopology(view, layout);
+    assertHorizontal(layout, view.visibleEdges.map(edge => [edge.source, edge.target]));
+    assert.equal(edgesOf(layout).length, 3, 'All three diamond routes must survive');
+  }
+});
+
+test('unrelated wide no-epic DAG keeps epics first and root wrapping bounded to the viewport', async () => {
+  const view = model.prepare({
+    tickets: [ticket('E1', { type: 'epic' }), ticket('E2', { type: 'epic' }),
+      ticket('e1', { parent_id: 'E1' }), ticket('e2', { parent_id: 'E2' }),
+      ...Array.from({ length: 6 }, (_, i) => ticket(`u${i}`)), ticket('shelf')],
+    edges: Array.from({ length: 5 }, (_, i) => ({ source: `u${i}`, target: `u${i + 1}` }))
+  });
+  for (const width of [1400, 450]) {
+    const layout = await model.layout(view.graph, elk, width);
+    assertTopology(view, layout);
+    const positions = absoluteNodes(layout);
+    const first = positions.get('epic:E1'), second = positions.get('epic:E2');
+    assert.equal(first.y, 16, 'Unrelated wide DAG must not displace the first epic from the top');
+    assert(positions.get('u0').y >= Math.max(first.y + first.height, second.y + second.height),
+      'Unrelated no-epic DAG belongs after the root epic rows');
+    if (width === 1400) assert.equal(second.y, first.y, 'Desktop epics share the top row');
+    else {
+      assert(second.y > first.y, 'Root epic wrapping must use viewport width, not wide DAG width');
+      assert.equal(second.x, first.x, 'Wrapped epic row restarts at the left');
+    }
+    assertHorizontal(layout, view.visibleEdges.map(edge => [edge.source, edge.target]));
+    assert.deepEqual(view.independent.map(node => node.id), ['shelf']);
+  }
+});
+
+test('page-level diamond splits contracted DAG and preserves dependency order across root wrapping', async () => {
+  const view = model.prepare({
+    tickets: [ticket('a'), ticket('b'), ticket('N', { type: 'epic' }),
+      ticket('n', { parent_id: 'N' })],
+    edges: [{ source: 'a', target: 'b' }, { source: 'a', target: 'n' },
+      { source: 'n', target: 'b' }]
+  });
+  assert.equal(view.hasCycle, false);
+  for (const width of [1400, 450]) {
+    const layout = await model.layout(view.graph, elk, width);
+    assertTopology(view, layout);
+    const positions = absoluteNodes(layout);
+    if (width === 1400) assertHorizontal(layout, view.visibleEdges.map(edge => [edge.source, edge.target]));
+    else for (const [source, target] of [['a', 'epic:N'], ['epic:N', 'b'], ['a', 'b']]) {
+      const a = positions.get(source), b = positions.get(target);
+      assert(b.y > a.y || b.y === a.y && b.x > a.x,
+        `${source} prerequisite must precede ${target} in wrapped root reading order`);
+    }
+    assert.equal(edgesOf(layout).length, 3, 'Every page diamond route must survive');
+    assert.deepEqual(view.independent, [], 'Connected no-epic tickets stay on the graph');
+  }
+});
+
 test('cycles across epic boundaries remain routed and visible in the real ELK layout', async () => {
   const view = model.prepare({
     tickets: [
@@ -246,6 +428,39 @@ test('dependency-linked umbrella epics route to the page frame while children re
   const layout = await model.layout(view.graph, elk, 1400);
   assertTopology(view, layout);
   assert.equal(edgesOf(layout).length, 2);
+});
+
+test('deep nested epic relayout keeps ELK calls bounded instead of repeating unchanged widths', { timeout: 15000 }, async () => {
+  const depth = 12, tickets = [];
+  for (let index = 0; index < depth; index++) {
+    tickets.push(ticket(`deep-${index}`, {
+      type: 'epic', parent_id: index ? `deep-${index - 1}` : null
+    }));
+  }
+  tickets.push(ticket('deep-source', { parent_id: `deep-${depth - 1}` }),
+    ticket('deep-target', { parent_id: `deep-${depth - 1}` }));
+  const view = model.prepare({ tickets, edges: [{ source: 'deep-source', target: 'deep-target' }] });
+  let calls = 0;
+  const countingElk = {
+    async layout(graph) {
+      calls++;
+      // A deterministic two-card DAG isolates recursive packing cost from ELK
+      // runtime. The real-ELK tests above cover routing and horizontal geometry.
+      return {
+        ...graph, width: 384, height: 100,
+        children: graph.children.map((node, index) => ({ ...node, x: index * 200, y: 0 })),
+        edges: graph.edges.map(edge => ({ ...edge, sections: [{
+          startPoint: { x: 184, y: 50 }, endPoint: { x: 200, y: 50 },
+          incomingShape: edge.sources[0], outgoingShape: edge.targets[0]
+        }] }))
+      };
+    }
+  };
+  const layout = await model.layout(view.graph, countingElk, 300);
+  assertTopology(view, layout);
+  assertHorizontal(layout, [['deep-source', 'deep-target']]);
+  assert(calls <= depth * 2,
+    `${depth} nested epics must need at most ${depth * 2} ELK calls, received ${calls}`);
 });
 
 test('production layout preserves geometry and dependencies for 290 tickets within ten seconds', { timeout: 15000 }, async t => {
