@@ -6,3 +6,15 @@
 @media(prefers-reduced-motion:no-preference){button{transition:background .12s ease}}
 
 .epic-boundary.selected{stroke:var(--gold);stroke-width:2;fill:#ebe0c9}.epic-label.selected{fill:var(--gold)}
+.status-filter{min-width:110px;font-size:11px;color:var(--muted);display:flex;flex-direction:column;gap:5px}
+#status{position:relative;font-size:14px;color:var(--ink)}
+#status summary{height:35px;padding:8px 10px;border:1px solid var(--line);border-radius:5px;background:var(--paper);cursor:pointer;white-space:nowrap}
+#status summary:focus-visible{outline:2px solid var(--gold);outline-offset:3px}
+.status-menu{position:absolute;top:calc(100% + 5px);left:0;z-index:10;width:270px;max-width:calc(100vw - 36px);max-height:350px;overflow:auto;padding:12px;background:var(--paper);border:1px solid var(--line);border-radius:5px;box-shadow:0 4px 12px #2b292420}
+.status-menu fieldset{border:0;padding:0;margin:0 0 10px;min-width:0}
+.status-menu legend{font-size:12px;font-weight:700;margin-bottom:7px}
+.filters .status-menu label{display:flex;flex-direction:row;align-items:center;gap:8px;font-size:13px;color:var(--ink);min-width:0;padding:5px 0;cursor:pointer;overflow-wrap:anywhere}
+.filters .status-menu input{width:16px;height:16px;padding:0;margin:0;flex:none;accent-color:var(--gold)}
+.status-menu p{margin-top:8px;line-height:1.4}
+@media(max-width:1050px){.status-filter{min-width:100px}}
+@media(max-width:760px){.status-filter{flex:1;min-width:100px}.status-menu{width:245px}}

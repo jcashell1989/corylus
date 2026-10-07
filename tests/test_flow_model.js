@@ -43,6 +43,39 @@ test('status, priority, and epic filters keep table/graph selection synchronized
   assert.equal(model.selectionAfterRefresh('removed', view.tickets), null);
   assert.equal(model.prepare(fixture, { epic: '__none__' }).visible.length, 5);
 });
+test('multiple statuses filter table, graph, edges and independent tickets together', () => {
+  const data = { tickets: [
+    ticket('a', { status: 'open' }), ticket('b', { status: 'in_progress' }),
+    ticket('c', { status: 'closed' }), ticket('d', { status: 'in_progress' }),
+    ticket('e', { status: 'closed' })
+  ], edges: [{ source: 'a', target: 'b' }, { source: 'b', target: 'c' }] };
+  const view = model.prepare(data, { statuses: ['open', 'in_progress'] });
+  assert.deepEqual(view.visible.map(t => t.id), ['a', 'b', 'd']);
+  assert.deepEqual(view.connectedTickets.map(t => t.id), ['a', 'b']);
+  assert.deepEqual(view.graph.children.map(t => t.id), ['a', 'b']);
+  assert.deepEqual(view.independent.map(t => t.id), ['d']);
+  assert.deepEqual(view.visibleEdges, [{ source: 'a', target: 'b' }]);
+  assert.equal(view.graph.edges.length, 1);
+  assert.equal(view.hiddenConnections.get('b'), 1);
+});
+test('all statuses includes unknown statuses and an empty selection matches nothing', () => {
+  const data = { tickets: [ticket('a'), ticket('b', { status: 'custom' }), ticket('c', { status: null })] };
+  assert.equal(model.prepare(data).visible.length, 3);
+  assert.equal(model.prepare(data, { statuses: null }).visible.length, 3);
+  const empty = model.prepare(data, { statuses: [] });
+  assert.equal(empty.visible.length, 0);
+  assert.equal(empty.connectedTickets.length, 0);
+  assert.equal(empty.independent.length, 0);
+  assert.equal(empty.graph.children.length, 0);
+  assert.equal(empty.visibleEdges.length, 0);
+});
+test('multi-status selection intersects search, epic and priority filters', () => {
+  const view = model.prepare(fixture, { statuses: ['open', 'in_progress'], priority: 'P1', epic: 'td-backend', search: 'API' });
+  assert.deepEqual(view.visible.map(t => t.id), ['td-103']);
+  assert.deepEqual(view.connectedTickets.map(t => t.id), ['td-103']);
+  assert.equal(view.independent.length, 0);
+  assert.equal(view.visibleEdges.length, 0);
+});
 test('dependency cycles remain visible and carry a warning', () => {
   const view = model.prepare({ tickets: [ticket('a'), ticket('b')], edges: [{ source: 'a', target: 'b' }, { source: 'b', target: 'a' }] });
   assert.equal(view.hasCycle, true);

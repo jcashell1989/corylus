@@ -2,7 +2,7 @@
   'use strict';
   const $ = id => document.getElementById(id), ns = 'http://www.w3.org/2000/svg', FlowModel = window.FlowModel;
   const demo = new URLSearchParams(location.search).get('demo') === '1';
-  const state = { data: null, model: null, selected: demo ? 'td-103' : null, sort: 'id', direction: 1, transform: { x: 20, y: 20, scale: 1 }, layout: null, layoutKey: '', renderVersion: 0, projectVersion: 0, firstLayout: true, busy: false };
+  const state = { data: null, model: null, selected: demo ? 'td-103' : null, statuses: null, availableStatuses: [], sort: 'id', direction: 1, transform: { x: 20, y: 20, scale: 1 }, layout: null, layoutKey: '', renderVersion: 0, projectVersion: 0, firstLayout: true, busy: false };
   const elk = window.ELK ? new window.ELK() : null;
   function el(tag, className, text) { const node = document.createElement(tag); if (className) node.className = className; if (text !== undefined) node.textContent = text; return node; }
   function svg(tag, attrs = {}, text) { const node = document.createElementNS(ns, tag); Object.entries(attrs).forEach(([key, value]) => node.setAttribute(key, value)); if (text !== undefined) node.textContent = text; return node; }
@@ -10,7 +10,28 @@
   function statusElement(status) { return el('span', `status ${String(status).replace(/[^a-z_]/g, '')}`, statusLabel(status)); }
   function priorityLabel(p) { return p === null || p === undefined || p === '' ? '—' : `P${String(p).replace(/^P/i, '')}`; }
   function message(lines, error = false) { $('messages').replaceChildren(...lines.map(text => el('div', '', text))); $('messages').hidden = !lines.length; $('messages').setAttribute('role', error ? 'alert' : 'status'); }
-  function currentFilters() { return { search: $('search').value, epic: $('epic').value, status: $('status').value, priority: $('priority').value }; }
+  function currentFilters() { return { search: $('search').value, epic: $('epic').value, statuses: state.statuses === null ? null : [...state.statuses], priority: $('priority').value }; }
+  function syncStatusSelection() {
+    $('status-options').querySelectorAll('input').forEach(input => { input.checked = state.statuses === null || state.statuses.has(input.value); });
+    $('status-summary').textContent = state.statuses === null ? 'All statuses' : state.statuses.size ? `${state.statuses.size} selected` : 'No statuses';
+  }
+  function statusOptions(statuses) {
+    state.availableStatuses = statuses;
+    const focused = $('status-options').contains(document.activeElement) ? document.activeElement.value : null;
+    // Keep selected statuses even when a refreshed snapshot no longer contains them.
+    const entries = [...new Set([...statuses, ...(state.statuses || [])])].sort();
+    const fragment = document.createDocumentFragment();
+    entries.forEach(status => {
+      const label = el('label'), input = el('input'); input.type = 'checkbox'; input.name = 'statuses'; input.value = status;
+      label.append(input, document.createTextNode(`${statusLabel(status)}${statuses.includes(status) ? '' : ' (not in snapshot)'}`)); fragment.append(label);
+    });
+    if (!entries.length) fragment.append(el('p', 'muted', 'No statuses in this snapshot.'));
+    $('status-options').replaceChildren(fragment); syncStatusSelection();
+    if (focused !== null) [...$('status-options').querySelectorAll('input')].find(input => input.value === focused)?.focus({ preventScroll: true });
+  }
+  function resetFilters() {
+    ['epic', 'priority', 'search'].forEach(id => $(id).value = ''); state.statuses = null; statusOptions(state.availableStatuses);
+  }
   function selectOptions(id, entries, defaultLabel, extra = []) {
     const control = $(id), selected = control.value;
     const options = [{ value: '', label: defaultLabel }, ...entries, ...extra];
@@ -21,7 +42,7 @@
   function updateFilters() {
     const all = FlowModel.prepare(state.data);
     selectOptions('epic', [...all.epics.values()].map(t => ({ value: t.id, label: t.title })), 'All epics', [{ value: '__none__', label: 'No epic' }]);
-    selectOptions('status', [...new Set(all.tickets.map(t => t.status))].filter(Boolean).sort().map(s => ({ value: s, label: statusLabel(s) })), 'All statuses');
+    statusOptions([...new Set(all.tickets.map(t => t.status))].filter(s => typeof s === 'string' && s.length).sort());
     selectOptions('priority', [...new Set(all.tickets.map(t => t.priority))].filter(p => p !== null && p !== undefined).sort().map(p => ({ value: String(p), label: priorityLabel(p) })), 'All priorities');
   }
   async function request(url) {
@@ -160,7 +181,9 @@
     renderShelf(); renderTable();
     const hidden = [...state.model.hiddenConnections.values()].filter(Boolean).length;
     message([...state.model.warnings, ...(hidden ? [`${hidden} visible ticket(s) have dependencies outside these filters. Hidden connections are marked on their cards.`] : [])]);
-    $('graph-summary').textContent = `${state.model.connectedTickets.length} connected · ${state.model.epics.size} epics · ${state.model.visibleEdges.length} links`;
+    const visibleEpics = new Set();
+    state.model.visible.forEach(ticket => { if (ticket.type === 'epic') visibleEpics.add(ticket.id); const epic = state.model.membership.get(ticket.id); if (epic) visibleEpics.add(epic); });
+    $('graph-summary').textContent = `${state.model.connectedTickets.length} connected · ${visibleEpics.size} epics · ${state.model.visibleEdges.length} links`;
     $('graph-empty').hidden = Boolean(state.model.graph.children.length);
     $('graph-empty').textContent = state.model.tickets.length ? 'No connected tickets match these filters. Independent tickets are on the right.' : 'This project has no tickets yet.';
     if (!elk) { $('graph-empty').hidden = false; $('graph-empty').textContent = 'The graph layout library could not be loaded. Ticket details remain available below.'; message(['The graph layout library could not be loaded. Refresh after restoring the static assets.'], true); return; }
@@ -196,10 +219,18 @@
   }
   $('sample-badge').hidden = !demo;
   $('filters').addEventListener('submit', event => event.preventDefault());
-  ['epic', 'status', 'priority'].forEach(id => $(id).addEventListener('change', render));
+  ['epic', 'priority'].forEach(id => $(id).addEventListener('change', render));
+  $('status-options').addEventListener('change', event => {
+    const input = event.target; if (!input.matches('input[type="checkbox"]')) return;
+    if (state.statuses === null) state.statuses = new Set(state.availableStatuses);
+    if (input.checked) state.statuses.add(input.value); else state.statuses.delete(input.value);
+    syncStatusSelection(); render();
+  });
+  $('status-all').addEventListener('click', () => { state.statuses = null; statusOptions(state.availableStatuses); render(); });
+  $('status').addEventListener('keydown', event => { if (event.key === 'Escape') { event.preventDefault(); $('status').open = false; $('status').querySelector('summary').focus(); } });
   let searchTimer; $('search').addEventListener('input', () => { clearTimeout(searchTimer); searchTimer = setTimeout(render, 130); });
-  $('clear-filters').addEventListener('click', () => { ['epic', 'status', 'priority', 'search'].forEach(id => $(id).value = ''); render(); });
-  $('project').addEventListener('change', () => { state.projectVersion++; state.selected = null; state.data = null; state.firstLayout = true; state.layout = null; $('graph-scene').replaceChildren(); $('ticket-rows').replaceChildren(); $('independent-list').replaceChildren(); $('graph-empty').hidden = false; $('graph-empty').textContent = 'Loading project…'; ['epic', 'status', 'priority', 'search'].forEach(id => $(id).value = ''); const url = new URL(location.href); url.searchParams.set('project', $('project').value); history.replaceState(null, '', url); refresh(); });
+  $('clear-filters').addEventListener('click', () => { resetFilters(); render(); });
+  $('project').addEventListener('change', () => { state.projectVersion++; state.selected = null; state.data = null; state.firstLayout = true; state.layout = null; $('graph-scene').replaceChildren(); $('ticket-rows').replaceChildren(); $('independent-list').replaceChildren(); $('graph-empty').hidden = false; $('graph-empty').textContent = 'Loading project…'; state.availableStatuses = []; resetFilters(); const url = new URL(location.href); url.searchParams.set('project', $('project').value); history.replaceState(null, '', url); refresh(); });
   $('refresh').addEventListener('click', () => { if ($('project').options.length) refresh(); else loadProjects().catch(error => message([error.message], true)); });
   document.querySelectorAll('[data-sort]').forEach(button => button.addEventListener('click', () => { state.direction = state.sort === button.dataset.sort ? -state.direction : 1; state.sort = button.dataset.sort; renderTable(); }));
   $('fit').addEventListener('click', fit); $('zoom-in').addEventListener('click', () => zoom(1.2)); $('zoom-out').addEventListener('click', () => zoom(1 / 1.2));
