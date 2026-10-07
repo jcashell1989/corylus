@@ -163,6 +163,43 @@ def check_fixture(browser, screenshots):
             return a && f && Math.abs(f.getBBox().y-a.getBBox().y)<.01;}""",
         )
         print("PASS nested epic membership, containment, labels, strict shelf, cross-epic edges and resize wrapping")
+    horizontal = payload([
+        ticket("root-epic", kind="epic"),
+        ticket("source", parent="root-epic"),
+        ticket("target", parent="root-epic", dependencies=["nested-target"]),
+        ticket("source-epic", kind="epic", parent="root-epic"),
+        ticket("target-epic", kind="epic", parent="root-epic"),
+        ticket("nested-source", parent="source-epic", dependencies=["source"]),
+        ticket("nested-target", parent="target-epic", dependencies=["nested-source"]),
+    ])
+    with server_for(horizontal) as url:
+        page.goto(url)
+        expect(page.locator(".ticket-row")).to_have_count(7)
+        wait_graph(page)
+        page.evaluate("""() => {
+          const layout=FlowModel.layout;
+          window.horizontalLayoutCompletions=0;
+          FlowModel.layout=async (...args) => {
+            const result=await layout(...args);
+            window.horizontalLayoutCompletions++;
+            return result;
+          };
+        }""")
+        for width in (1900, 800):
+            page.set_viewport_size({"width": width, "height": 1050})
+            if width == 800:
+                page.wait_for_function("() => window.horizontalLayoutCompletions > 0")
+            # All linked blocks stay in one horizontal group at either viewport width.
+            for source, target in (("source", "nested-source"),
+                                   ("nested-source", "nested-target"),
+                                   ("nested-target", "target")):
+                assert bounds(page, card_selector(source))["x"] < bounds(page, card_selector(target))["x"], (
+                    f"Epic-local dependency {source} -> {target} must flow horizontally")
+            root = bounds(page, epic_selector("root-epic"))
+            for key in ("source-epic", "target-epic"):
+                assert contains(root, bounds(page, epic_selector(key)))
+        page.screenshot(path=str(screenshots / "horizontal-nested.png"), full_page=True)
+        print("PASS horizontal epic-local dependencies across nested boxes and disconnected local blocks")
     umbrella = payload([
         ticket("umbrella", kind="epic"),
         ticket("a", kind="epic", parent="umbrella"), ticket("a1", parent="a"),
@@ -210,7 +247,51 @@ def read_snapshot(path):
     return data, hashlib.sha256(raw).hexdigest()
 
 
-def measure(browser, data, static_dir, screenshot):
+def direction_metrics(page, data):
+    """Measure card and epic endpoints, including links to nested epic boxes."""
+    return page.evaluate("""data => {
+      const membership=FlowModel.prepare(data).membership;
+      const positions=new Map();
+      for (const node of document.querySelectorAll('.node-card, .epic-container')) {
+        const shape=node.classList.contains('epic-container') ? node.querySelector('.epic-boundary') : node;
+        const r=shape.getBBox(), m=shape.transform?.baseVal.consolidate()?.matrix;
+        positions.set(node.dataset.ticket,{x:r.x+(m?.e||0),y:r.y+(m?.f||0)});
+      }
+      const edges=data.edges.filter(e=>positions.has(e.source)&&positions.has(e.target)).map(e=>{
+        const a=positions.get(e.source), b=positions.get(e.target);
+        const epic=membership.get(e.source);
+        return {...e,epic:epic||null,same_epic:Boolean(epic && epic===membership.get(e.target)),
+          direction:b.x>a.x+.01 ? 'right' : b.x<a.x-.01 ? 'left' : 'vertical',
+          source_x:a.x,target_x:b.x,source_y:a.y,target_y:b.y};
+      });
+      const counts=items=>Object.fromEntries(['right','left','vertical'].map(d=>[d,items.filter(e=>e.direction===d).length]));
+      return {same_epic:counts(edges.filter(e=>e.same_epic)),
+        other:counts(edges.filter(e=>!e.same_epic)),same_epic_edges:edges.filter(e=>e.same_epic)};
+    }""", data)
+
+
+def focus_snapshot(page, data, epic_id, screenshot):
+    """Capture an anonymized epic at readable scale after its filtered layout settles."""
+    expected = page.evaluate("""({data,epic}) => {
+      const ids=[];
+      function visit(node) {
+        if (node.id !== 'root') ids.push(node.id.replace(/^epic:/,''));
+        (node.children||[]).forEach(visit);
+      }
+      visit(FlowModel.prepare(data,{epic}).graph);
+      return ids.sort();
+    }""", {"data": data, "epic": epic_id})
+    page.locator("#epic").select_option(epic_id)
+    page.wait_for_function("""expected => {
+      const ids=[...document.querySelectorAll('.node-card, .epic-container')].map(n=>n.dataset.ticket).sort();
+      return JSON.stringify(ids)===JSON.stringify(expected);
+    }""", arg=expected)
+    wait_graph(page)
+    page.locator("#fit").click()
+    page.screenshot(path=str(screenshot), full_page=True)
+
+
+def measure(browser, data, static_dir, screenshot, focus_epic=None):
     page = browser.new_page(viewport={"width": 1716, "height": 1100})
     errors = []
     page.on("pageerror", lambda error: errors.append(str(error)))
@@ -243,6 +324,10 @@ def measure(browser, data, static_dir, screenshot):
             shelf:document.querySelectorAll('#independent-list [data-ticket]').length,
             viewport:document.querySelector('#graph-viewport').clientWidth};
         }""")
+        result["dependency_direction"] = direction_metrics(page, data)
+        if focus_epic:
+            focus_snapshot(page, data, focus_epic,
+                           screenshot.with_name(f"homelab-{focus_epic}-{screenshot.stem.split('-')[-1]}.png"))
         result["page_ready_seconds"] = round(elapsed, 3)
         result["initial_transform"] = initial
         assert not errors, errors
@@ -250,7 +335,7 @@ def measure(browser, data, static_dir, screenshot):
         return result
 
 
-def compare_snapshot(browser, path, baseline_ref, screenshots):
+def compare_snapshot(browser, path, baseline_ref, screenshots, focus_epic=None):
     data, digest = read_snapshot(path)
     with tempfile.TemporaryDirectory(prefix="corylus-layout-before-") as directory:
         static = Path(directory) / "static"
@@ -261,8 +346,8 @@ def compare_snapshot(browser, path, baseline_ref, screenshots):
                 capture_output=True, check=True,
             ).stdout
             (static / name).write_bytes(original)
-        before = measure(browser, data, static, screenshots / "homelab-before.png")
-    after = measure(browser, data, ROOT / "static", screenshots / "homelab-after.png")
+        before = measure(browser, data, static, screenshots / "homelab-before.png", focus_epic)
+    after = measure(browser, data, ROOT / "static", screenshots / "homelab-after.png", focus_epic)
     result = {
         "snapshot_sha256": digest, "snapshot_records": len(data["tickets"]),
         "snapshot_dependencies": len(data["edges"]), "baseline_ref": baseline_ref,
@@ -270,7 +355,13 @@ def compare_snapshot(browser, path, baseline_ref, screenshots):
         "area_change_percent": round((after["area"] / before["area"] - 1) * 100, 2),
     }
     (screenshots / "homelab-layout-metrics.json").write_text(json.dumps(result, indent=2) + "\n")
-    print(json.dumps(result, indent=2))
+    summary = copy.deepcopy(result)
+    for phase in ("before", "after"):
+        del summary[phase]["dependency_direction"]["same_epic_edges"]
+    print(json.dumps(summary, indent=2))
+    same_epic = after["dependency_direction"]["same_epic"]
+    assert same_epic["right"] > 0, "Real tracker must exercise dependencies within epics"
+    assert same_epic["left"] == same_epic["vertical"] == 0, "Epic-local prerequisites must flow left to right"
     assert after["area"] <= before["area"] * 1.05, "Real tracker must stay compact (maximum 5% area growth)"
 
 
@@ -280,6 +371,7 @@ def main():
     parser.add_argument("--screenshots", type=Path, default=ROOT / "test-results" / "epic-layout")
     parser.add_argument("--snapshot", type=Path, help="Existing scheduled .todos/export.json; read only")
     parser.add_argument("--baseline-ref", default="c14112c")
+    parser.add_argument("--focus-epic", help="Also screenshot this anonymized epic before and after")
     args = parser.parse_args()
     args.screenshots.mkdir(parents=True, exist_ok=True)
     with sync_playwright() as playwright:
@@ -290,7 +382,7 @@ def main():
         try:
             check_fixture(browser, args.screenshots)
             if args.snapshot:
-                compare_snapshot(browser, args.snapshot, args.baseline_ref, args.screenshots)
+                compare_snapshot(browser, args.snapshot, args.baseline_ref, args.screenshots, args.focus_epic)
         finally:
             browser.close()
 
