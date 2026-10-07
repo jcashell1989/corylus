@@ -221,7 +221,7 @@
     if (!state.layout) return;
     const width = $('graph-viewport').clientWidth, height = $('graph-viewport').clientHeight;
     if (topAnchored) {
-      state.transform = { scale: Math.min(1, (width - 35) / Math.max(1, state.layout.width || 1)), x: 16, y: 16 }; applyTransform(); return;
+      state.transform = { scale: Math.max(.5, Math.min(1, (width - 35) / Math.max(1, state.layout.width || 1))), x: 16, y: 16 }; applyTransform(); return;
     }
     const scale = Math.max(.01, Math.min(1.25, (width - 35) / Math.max(1, state.layout.width || 1), (height - 42) / Math.max(1, state.layout.height || 1)));
     state.transform = { scale, x: (width - (state.layout.width || 0) * scale) / 2, y: (height - (state.layout.height || 0) * scale) / 2 }; applyTransform();

@@ -103,7 +103,7 @@
     const graphNodes = visible.filter(t => connected.has(t.id) || membership.get(t.id) || t.type === 'epic');
     const containers = new Map();
     function ensureEpic(id) {
-      if (!containers.has(id)) containers.set(id, { id: `epic:${id}`, children: [], layoutOptions: { ...LAYOUT_OPTIONS, 'elk.padding': '[top=44,left=12,bottom=16,right=12]' } });
+      if (!containers.has(id)) containers.set(id, { id: `epic:${id}`, priority: epics.get(id)?.priority ?? byId.get(id)?.priority, children: [], layoutOptions: { ...LAYOUT_OPTIONS, 'elk.padding': '[top=44,left=12,bottom=16,right=12]' } });
     }
     graphNodes.forEach(t => {
       if (t.type === 'epic') ensureEpic(t.id);
@@ -123,7 +123,7 @@
       else children.push(box);
     });
     graphNodes.filter(t => t.type !== 'epic').forEach(t => {
-      const node = { id: t.id, width: NODE_WIDTH, height: NODE_HEIGHT };
+      const node = { id: t.id, priority: t.priority, width: NODE_WIDTH, height: NODE_HEIGHT };
       const box = containers.get(membership.get(t.id));
       (box ? box.children : children).push(node);
     });
@@ -162,19 +162,49 @@
     }
     function ordered(items, container, edges = allEdges) {
       const byId = new Map(items.map(n => [n.id, n]));
-      const outgoing = new Map(items.map(n => [n.id, new Set()])), incoming = new Map(items.map(n => [n.id, 0]));
+      const outgoing = new Map(items.map(n => [n.id, new Set()])), reverse = new Map(items.map(n => [n.id, new Set()]));
       edges.forEach(e => {
         const a = childOf(e.sources[0], container), b = childOf(e.targets[0], container);
-        if (a !== b && byId.has(a) && byId.has(b) && !outgoing.get(a).has(b)) { outgoing.get(a).add(b); incoming.set(b, incoming.get(b) + 1); }
+        if (a !== b && byId.has(a) && byId.has(b)) { outgoing.get(a).add(b); reverse.get(b).add(a); }
       });
-      const queue = items.filter(n => !incoming.get(n.id)).map(n => n.id), result = [];
-      for (let i = 0; i < queue.length; i++) {
-        const id = queue[i]; result.push(byId.get(id));
-        outgoing.get(id).forEach(next => { incoming.set(next, incoming.get(next) - 1); if (!incoming.get(next)) queue.push(next); });
+      const compare = (a, b) => String(a.priority ?? 'ZZ').localeCompare(String(b.priority ?? 'ZZ'), undefined, { numeric: true }) || a.id.localeCompare(b.id);
+      // Condense strongly connected components before sorting. Appending all
+      // cycle members at the end would put their outgoing dependents first.
+      // Both traversals are iterative so large graphs cannot overflow a stack.
+      const visited = new Set(), finish = [];
+      items.forEach(node => {
+        if (visited.has(node.id)) return;
+        visited.add(node.id);
+        const stack = [{ id: node.id, next: outgoing.get(node.id).values() }];
+        while (stack.length) {
+          const frame = stack[stack.length - 1], next = frame.next.next();
+          if (next.done) { finish.push(frame.id); stack.pop(); }
+          else if (!visited.has(next.value)) { visited.add(next.value); stack.push({ id: next.value, next: outgoing.get(next.value).values() }); }
+        }
+      });
+      const owner = new Map(), groups = [];
+      finish.reverse().forEach(id => {
+        if (owner.has(id)) return;
+        const group = [], queue = [id], index = groups.length;
+        owner.set(id, index);
+        for (let i = 0; i < queue.length; i++) {
+          group.push(byId.get(queue[i]));
+          reverse.get(queue[i]).forEach(next => { if (!owner.has(next)) { owner.set(next, index); queue.push(next); } });
+        }
+        groups.push(group.sort(compare));
+      });
+      const links = groups.map(() => new Set()), incoming = groups.map(() => 0);
+      outgoing.forEach((targets, source) => targets.forEach(target => {
+        const a = owner.get(source), b = owner.get(target);
+        if (a !== b && !links[a].has(b)) { links[a].add(b); incoming[b]++; }
+      }));
+      const ready = groups.map((_, i) => i).filter(i => !incoming[i]), result = [];
+      while (ready.length) {
+        ready.sort((a, b) => compare(groups[a][0], groups[b][0]));
+        const index = ready.shift(); result.push(...groups[index]);
+        links[index].forEach(next => { if (!--incoming[next]) ready.push(next); });
       }
-      // Dependency cycles stay visible in stable input order.
-      const placed = new Set(result.map(n => n.id));
-      return [...result, ...items.filter(n => !placed.has(n.id))];
+      return result;
     }
     const placements = new Map();
     function place(container, width) {
@@ -262,65 +292,52 @@
       // ordered() uses ancestry, so provide temporary component ancestry only here.
       const restore = new Map();
       blocks.forEach(n => { if (!ancestry.has(n.id)) { restore.set(n.id, undefined); ancestry.set(n.id, [...(ancestry.get(container.id) || []), container.id]); } });
-      // Keep page epics ahead of unrelated leaf DAGs, as in the original
-      // framing. Dependency ordering still moves a prerequisite before its box.
-      const candidates = [...laidBoxes, ...blocks];
-      if (container.id !== 'root') candidates.sort((a, b) => b.width - a.width);
-      const orderedBlocks = ordered(candidates, container.id, projected);
+      const orderedBlocks = ordered([...laidBoxes, ...blocks], container.id, projected);
       restore.forEach((value, id) => { if (value === undefined) ancestry.delete(id); });
-      // A dependency between a local DAG and a nested epic must keep flowing
-      // RIGHT too. Wrap unrelated groups, never split a linked group into rows.
-      // The page still wraps epic boxes in dependency order to fit the viewport.
-      const blockById = new Map(orderedBlocks.map(n => [n.id, n]));
-      const rank = new Map(orderedBlocks.map((n, i) => [n.id, i]));
-      const neighbors = new Map(orderedBlocks.map(n => [n.id, []]));
-      if (container.id !== 'root') projected.forEach(e => {
+      const neighbors = new Map(orderedBlocks.map(n => [n.id, new Set()]));
+      projected.forEach(e => {
         const a = e.sources[0], b = e.targets[0];
         if (a !== b && neighbors.has(a) && neighbors.has(b)) {
-          neighbors.get(a).push(b); neighbors.get(b).push(a);
+          neighbors.get(a).add(b); neighbors.get(b).add(a);
         }
       });
-      const grouped = new Set(), rows = [];
-      orderedBlocks.forEach(block => {
-        if (grouped.has(block.id)) return;
-        const ids = [block.id]; grouped.add(block.id);
-        for (let i = 0; i < ids.length; i++) neighbors.get(ids[i]).forEach(id => {
-          if (!grouped.has(id)) { grouped.add(id); ids.push(id); }
-        });
-        rows.push(ids.sort((a, b) => rank.get(a) - rank.get(b)).map(id => blockById.get(id)));
+      // Every sibling epic shares this row, regardless of the viewport.
+      // Include leaf blocks connected to boxes so prerequisites, nested detours,
+      // and page-level diamonds continue flowing left to right.
+      const besideBoxes = new Set(laidBoxes.map(n => n.id)), queue = [...besideBoxes];
+      for (let i = 0; i < queue.length; i++) neighbors.get(queue[i]).forEach(id => {
+        if (!besideBoxes.has(id)) { besideBoxes.add(id); queue.push(id); }
       });
-      // Give nested boxes the space remaining beside their prerequisites.
-      // Their unrelated members can wrap internally without bending the
-      // dependency between the boxes into a vertical row.
-      for (let i = 0; i < rows.length; i++) {
-        const row = rows[i], nested = row.filter(n => n.children && !n.members);
-        const fixedWidth = row.filter(n => !nested.includes(n)).reduce((sum, n) => sum + n.width, 0);
-        const budget = Math.max(NODE_WIDTH + padding * 2,
-          (width - padding * 2 - fixedWidth - gap * (row.length - 1)) / Math.max(1, nested.length));
-        rows[i] = await Promise.all(row.map(n => budget < width - padding * 2 && nested.includes(n) && n.width > budget
-          ? place(n, budget) : n));
-      }
-      // Independent groups have no ordering constraint. Pack taller groups
-      // first so their short neighbors do not create mostly empty extra rows.
-      if (container.id !== 'root') rows.sort((a, b) =>
-        Math.max(...b.map(n => n.height)) - Math.max(...a.map(n => n.height)));
-      // Nested linked rows may widen their container. At the page, an oversized
-      // leaf DAG must not change how unrelated epics wrap to the viewport.
-      const rowWidths = rows.map(row => row.reduce((sum, block) => sum + block.width, 0) + gap * (row.length - 1));
-      const packingWidth = container.id === 'root' ? width : Math.max(width, ...rowWidths.map(w => w + padding * 2));
-      let x = padding, y = top, rowHeight = 0, right = padding;
+      const topRow = orderedBlocks.filter(n => besideBoxes.has(n.id));
+      const remaining = orderedBlocks.filter(n => !besideBoxes.has(n.id));
+      // Globally unlinked members are a vertical list, never a wrapped grid.
+      // A single leaf with an external dependency is still part of the flow.
+      const connectedIds = new Set(allEdges.flatMap(e => [...e.sources, ...e.targets]));
+      const unlinked = container.id === 'root' ? [] : remaining.filter(n =>
+        n.members?.length === 1 && !connectedIds.has(n.members[0]));
+      const unlinkedIds = new Set(unlinked.map(n => n.id));
+      const lowerRows = remaining.filter(n => !unlinkedIds.has(n.id)).map(n => [n]);
+      const rows = topRow.length ? [topRow, ...lowerRows] : lowerRows;
+      let right = padding, contentBottom = top;
       const children = [], edges = [];
-      rows.forEach((row, i) => {
-        if (x > padding && x + rowWidths[i] + padding > packingWidth) { x = padding; y += rowHeight + gap; rowHeight = 0; }
-        row.forEach(block => {
-          if (block.members && block.children) {
-            block.children.forEach(n => children.push({ ...n, x: x + n.x, y: y + n.y }));
-            (block.edges || []).forEach(e => edges.push({ ...e, container: container.id, sections: (e.sections || []).map(s => ({ ...s, startPoint: { x: s.startPoint.x + x, y: s.startPoint.y + y }, endPoint: { x: s.endPoint.x + x, y: s.endPoint.y + y }, bendPoints: (s.bendPoints || []).map(p => ({ x: p.x + x, y: p.y + y })) })) }));
-          } else { const node = { ...block }; delete node.members; children.push({ ...node, x, y }); }
-          right = Math.max(right, x + block.width); rowHeight = Math.max(rowHeight, block.height); x += block.width + gap;
-        });
+      function put(block, x, y) {
+        if (block.members && block.children) {
+          block.children.forEach(n => children.push({ ...n, x: x + n.x, y: y + n.y }));
+          (block.edges || []).forEach(e => edges.push({ ...e, container: container.id, sections: (e.sections || []).map(s => ({ ...s, startPoint: { x: s.startPoint.x + x, y: s.startPoint.y + y }, endPoint: { x: s.endPoint.x + x, y: s.endPoint.y + y }, bendPoints: (s.bendPoints || []).map(p => ({ x: p.x + x, y: p.y + y })) })) }));
+        } else { const node = { ...block }; delete node.members; children.push({ ...node, x, y }); }
+        right = Math.max(right, x + block.width);
+        contentBottom = Math.max(contentBottom, y + block.height);
+      }
+      let y = top;
+      rows.forEach(row => {
+        let x = padding, height = 0;
+        row.forEach(block => { put(block, x, y); x += block.width + gap; height = Math.max(height, block.height); });
+        y += height + gap;
       });
-      return { ...container, children, edges, width: Math.max(NODE_WIDTH + padding * 2, right + padding), height: Math.max(top + bottom, y + rowHeight + bottom) };
+      const listX = rows.length ? right + gap : padding;
+      y = top;
+      unlinked.forEach(block => { put(block, listX, y); y += block.height + gap; });
+      return { ...container, children, edges, width: Math.max(NODE_WIDTH + padding * 2, right + padding), height: Math.max(top + bottom, contentBottom + bottom) };
     }
     const result = await place(graph, available);
     const positions = new Map();

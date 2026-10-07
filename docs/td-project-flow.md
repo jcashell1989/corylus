@@ -52,14 +52,18 @@ tracker data. Sample mode is never a fallback when a live tracker fails.
   resolves through intermediate parent tickets to the nearest epic.
 
 Each epic lays out its own dependency components with ELK's compact layered
-layout. Epic boxes and nested epic boxes top-align in rows, ordered by their
-cross-epic dependencies, and wrap at the graph viewport width. Cross-epic
-arrows meet box boundaries. A root with at least two epic children and a
-majority of epic children becomes the page frame; its descendants retain their
+layout flowing left to right. Epic boxes form one row of top-aligned columns,
+including nested sibling epics. Prerequisite epics sit left of dependent epics.
+Unconstrained epics and dependency cycles use stable priority then id ordering;
+cycles stay visible. The columns extend beyond a narrow viewport. Unlinked
+members inside each epic form a vertical list beside its dependency flow.
+Cross-epic arrows meet box boundaries. A root with at least two epic children
+and a majority of epic children becomes the page frame; its descendants retain their
 nested boxes and table membership. Empty epics remain selectable boxes.
 
-Automatic framing fits the graph width and starts at the top, keeping wrapped
-rows readable with zoom and pan. **Fit view** retains the complete overview.
+Automatic framing starts at the top and fits the width down to 50% zoom,
+keeping cards readable while wider columns remain available with pan and zoom.
+**Fit view** retains the complete overview.
 Changing filters lays out and frames the smaller graph. Connected cards whose
 neighbors are hidden retain hidden-link indicators. The
 [nested-epic comparison](evidence/td-dd75d8/README.md) records scheduled homelab
@@ -149,6 +153,6 @@ visibility, not physical-device validation.
 The earlier viewer review fixed ancestry lookup performance, sorting before
 data loads, and prerequisite keyboard activation. This revision awaits
 independent acceptance. Cross-epic arrows use orthogonal box-boundary routes;
-they do not guarantee avoidance of intervening boxes on cycles or wrapped rows.
+they do not guarantee avoidance of intervening boxes in dense or cyclic maps.
 This evidence covers the local implementation and does not establish deployment,
 authentication, or source freshness on another guest.

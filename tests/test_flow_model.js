@@ -151,7 +151,7 @@ test('epic hierarchy cycles cannot create recursive graph containers', () => {
   assert(ids.includes('epic:loop-b'));
   assert(ids.includes('member'));
 });
-test('epic boxes top-align in dependency order and wrap at the viewport width', async () => {
+test('epic boxes top-align in dependency order at every viewport width', async () => {
   const data = { tickets: [
     ticket('downstream', { type: 'epic', epic_id: null }),
     ticket('upstream', { type: 'epic', epic_id: null }),
@@ -168,9 +168,10 @@ test('epic boxes top-align in dependency order and wrap at the viewport width', 
   assert(boxes.find(n => n.id === 'epic:upstream').x < boxes.find(n => n.id === 'epic:downstream').x);
   const narrow = await model.layout(model.prepare(data).graph, elk, 300);
   const narrowBoxes = narrow.children.filter(n => n.id.startsWith('epic:'));
-  assert.equal(new Set(narrowBoxes.map(n => n.y)).size, 3, 'each box wraps to its own row');
-  assert(narrow.width <= 300, `wrapped graph width ${narrow.width} must fit the viewport`);
-  assert(narrow.height > wide.height);
+  assert.equal(new Set(narrowBoxes.map(n => n.y)).size, 1, 'all epic columns share one top');
+  assert(narrow.width > 300, 'columns extend past a narrow viewport for pan and Fit');
+  assert.equal(narrow.height, wide.height);
+  assert(narrowBoxes.find(n => n.id === 'epic:upstream').x < narrowBoxes.find(n => n.id === 'epic:downstream').x);
   const routed = [...(wide.edges || []), ...boxes.flatMap(n => n.edges || [])];
   assert(routed.some(edge => edge.sections?.length > 0), 'cross-epic dependency is routed');
 });

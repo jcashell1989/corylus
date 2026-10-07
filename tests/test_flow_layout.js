@@ -262,7 +262,7 @@ test('real ELK lays out prerequisites left of dependents within root and nested 
   }
 });
 
-test('root epic dependencies flow horizontally on desktop and preserve order when wrapping', async () => {
+test('root epic dependencies flow horizontally without viewport wrapping', async () => {
   const view = model.prepare({
     tickets: [
       ticket('source-epic', { type: 'epic' }), ticket('target-epic', { type: 'epic' }),
@@ -276,12 +276,8 @@ test('root epic dependencies flow horizontally on desktop and preserve order whe
     assertTopology(view, layout);
     const positions = absoluteNodes(layout);
     const source = positions.get('epic:source-epic'), target = positions.get('epic:target-epic');
-    if (width === 1400) {
-      assertHorizontal(layout, [['epic:source-epic', 'epic:target-epic'], ['source', 'target']]);
-    } else {
-      assert(target.y > source.y || target.y === source.y && target.x > source.x,
-        'Wrapped root epics must preserve prerequisite-before-dependent reading order');
-    }
+    assertHorizontal(layout, [['epic:source-epic', 'epic:target-epic'], ['source', 'target']]);
+    assert.equal(source.y, target.y, 'Epic columns share one top at every viewport width');
   }
 });
 
@@ -352,7 +348,7 @@ test('direct outer dependency and nested detour keep an acyclic diamond horizont
   }
 });
 
-test('unrelated wide no-epic DAG keeps epics first and root wrapping bounded to the viewport', async () => {
+test('unrelated wide no-epic DAG keeps epics first and top aligned at every viewport', async () => {
   const view = model.prepare({
     tickets: [ticket('E1', { type: 'epic' }), ticket('E2', { type: 'epic' }),
       ticket('e1', { parent_id: 'E1' }), ticket('e2', { parent_id: 'E2' }),
@@ -367,17 +363,14 @@ test('unrelated wide no-epic DAG keeps epics first and root wrapping bounded to 
     assert.equal(first.y, 16, 'Unrelated wide DAG must not displace the first epic from the top');
     assert(positions.get('u0').y >= Math.max(first.y + first.height, second.y + second.height),
       'Unrelated no-epic DAG belongs after the root epic rows');
-    if (width === 1400) assert.equal(second.y, first.y, 'Desktop epics share the top row');
-    else {
-      assert(second.y > first.y, 'Root epic wrapping must use viewport width, not wide DAG width');
-      assert.equal(second.x, first.x, 'Wrapped epic row restarts at the left');
-    }
+    assert.equal(second.y, first.y, 'All epic columns share the top row');
+    assert(first.x < second.x, 'Epic columns remain left to right on narrow screens');
     assertHorizontal(layout, view.visibleEdges.map(edge => [edge.source, edge.target]));
     assert.deepEqual(view.independent.map(node => node.id), ['shelf']);
   }
 });
 
-test('page-level diamond splits contracted DAG and preserves dependency order across root wrapping', async () => {
+test('page-level diamond splits contracted DAG and preserves horizontal dependency order', async () => {
   const view = model.prepare({
     tickets: [ticket('a'), ticket('b'), ticket('N', { type: 'epic' }),
       ticket('n', { parent_id: 'N' })],
@@ -389,12 +382,9 @@ test('page-level diamond splits contracted DAG and preserves dependency order ac
     const layout = await model.layout(view.graph, elk, width);
     assertTopology(view, layout);
     const positions = absoluteNodes(layout);
-    if (width === 1400) assertHorizontal(layout, view.visibleEdges.map(edge => [edge.source, edge.target]));
-    else for (const [source, target] of [['a', 'epic:N'], ['epic:N', 'b'], ['a', 'b']]) {
-      const a = positions.get(source), b = positions.get(target);
-      assert(b.y > a.y || b.y === a.y && b.x > a.x,
-        `${source} prerequisite must precede ${target} in wrapped root reading order`);
-    }
+    assertHorizontal(layout, view.visibleEdges.map(edge => [edge.source, edge.target]));
+    assert(positions.get('a').x < positions.get('epic:N').x);
+    assert(positions.get('epic:N').x < positions.get('b').x);
     assert.equal(edgesOf(layout).length, 3, 'Every page diamond route must survive');
     assert.deepEqual(view.independent, [], 'Connected no-epic tickets stay on the graph');
   }
@@ -487,4 +477,56 @@ test('production layout preserves geometry and dependencies for 290 tickets with
   assertTopology(view, layout);
   assert.equal(nodesOf(layout).length, 290);
   assert(elapsed < 10000, `290-ticket layout took ${elapsed.toFixed(0)}ms, exceeding 10000ms`);
+});
+
+test('epic columns stay horizontal and top aligned at every viewport width', async () => {
+  const view = model.prepare({ tickets: [
+    ticket('B', { type: 'epic' }), ticket('b', { parent_id: 'B' }),
+    ticket('A', { type: 'epic' }), ticket('a', { parent_id: 'A' }),
+    ticket('C', { type: 'epic' }), ticket('c', { parent_id: 'C' })
+  ], edges: [{ source: 'a', target: 'b' }] });
+  for (const width of [1400, 450]) {
+    const layout = await model.layout(view.graph, elk, width);
+    assertTopology(view, layout);
+    assertHorizontal(layout, [['epic:A', 'epic:B'], ['a', 'b']]);
+    const tops = layout.children.filter(n => n.children).map(n => n.y);
+    assert(tops.every(y => y === 16), `All epic columns must share the top: ${tops}`);
+    assert(layout.width > layout.height, 'Epic columns must form a landscape map');
+  }
+});
+
+test('unlinked epic members form a vertical list beside the horizontal dependency flow', async () => {
+  const view = model.prepare({ tickets: [ticket('E', { type: 'epic' }),
+    ...Array.from({ length: 9 }, (_, i) => ticket(`free-${i}`, { parent_id: 'E' })),
+    ticket('a', { parent_id: 'E' }), ticket('b', { parent_id: 'E' })
+  ], edges: [{ source: 'a', target: 'b' }] });
+  for (const width of [1400, 450]) {
+    const layout = await model.layout(view.graph, elk, width);
+    assertTopology(view, layout);
+    assertHorizontal(layout, [['a', 'b']]);
+    const positions = absoluteNodes(layout);
+    const free = Array.from({ length: 9 }, (_, i) => positions.get(`free-${i}`));
+    assert.equal(new Set(free.map(n => n.x)).size, 1, 'Unlinked members must not make a wide grid');
+    assert.equal(new Set(free.map(n => n.y)).size, 9, 'Unlinked members must have distinct rows');
+  }
+});
+
+test('epic ties and induced cycles use priority then id independent of input order', async () => {
+  const fixture = { tickets: [
+    ticket('z', { type: 'epic', priority: 'P0' }), ticket('z-task', { parent_id: 'z' }),
+    ticket('b', { type: 'epic', priority: 'P2' }), ticket('b-task', { parent_id: 'b' }),
+    ticket('a', { type: 'epic', priority: 'P2' }), ticket('a-task', { parent_id: 'a' }),
+    ticket('a-next', { parent_id: 'a' }),
+    ticket('next', { type: 'epic', priority: 'P0' }), ticket('next-task', { parent_id: 'next' })
+  ], edges: [{ source: 'a-task', target: 'b-task' },
+    { source: 'b-task', target: 'a-next' }, { source: 'b-task', target: 'next-task' }] };
+  for (const tickets of [fixture.tickets, [...fixture.tickets].reverse()]) {
+    const view = model.prepare({ ...fixture, tickets, epics: tickets.filter(t => t.type === 'epic').map(t => ({ id: t.id, title: t.title })) });
+    assert.equal(view.hasCycle, false, 'Only the induced epic graph has a cycle');
+    const layout = await model.layout(view.graph, elk, 450);
+    assertTopology(view, layout);
+    assert.deepEqual(layout.children.filter(n => n.children).sort((a, b) => a.x - b.x).map(n => n.id),
+      ['epic:z', 'epic:a', 'epic:b', 'epic:next']);
+    assert(layout.children.filter(n => n.children).every(n => n.y === 16));
+  }
 });
