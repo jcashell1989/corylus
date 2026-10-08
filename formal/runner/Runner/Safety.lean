@@ -120,11 +120,14 @@ theorem tracker_approval_acquisition (c : Config) (s : State) (f : Facts)
     · simp_all [independent]
     · simp_all
 
-/-- R058: newly acquiring a waiver-closer approval obeys the same boundary. -/
+/-- R058: newly acquiring a waiver-closer approval requires an independent
+actor and a concrete verified receipt for the current, waived head. -/
 theorem closer_approval_acquisition (c : Config) (s : State) (f : Facts)
     (hp : s.phase = .closerRunning) (hbefore : s.approved = false)
     (hafter : (step c s { kind := .jobFinished, facts := f }).approved = true) :
-    c.closerSession ≠ c.workerSession ∧ c.closerSession ≠ c.creatorSession := by
+    c.closerSession ≠ c.workerSession ∧ c.closerSession ≠ c.creatorSession ∧
+    f.sha = s.headSha ∧ s.waiverSha = some s.headSha ∧
+    f.approvalReceiptValid = true ∧ f.actorValid = true ∧ f.headCurrent = true := by
   simp only [step] at hafter
   split at hafter
   · simp_all

@@ -197,6 +197,267 @@ def serviceStopped : List Event := jobStart ++ [changedService true,
 example : outcome job serviceStopped = .stopped := by decide
 #eval showTrace "service_stop_restores_before_terminal" job serviceStopped
 
+-- §5.1 R016–R020: identity refusal handles each process/service safety branch.
+def observedChild (child : Child) : Event :=
+  { kind := .effectObserved, facts := { observedChild := some child } }
+def unknownService : Event :=
+  { kind := .effectObserved, facts := { observedService := some .unknown } }
+def identityAbsent : List Event := [event .admissionChecked, event .identityRefused]
+example : outcome auto identityAbsent = .needsDecision := by decide
+example : (run auto (initial auto) identityAbsent).workerLaunches = 0 := by decide
+#eval showTrace "identity_absent_no_launch" auto identityAbsent
+
+def identityLive : List Event := worker ++ [event .identityRefused, event .cancelVerified]
+example : phases auto identityLive =
+    [.queued, .building, .building, .quiescing, .needsDecision] := by decide
+example : (run auto (initial auto) identityLive).child = .absent := by decide
+#eval showTrace "identity_verified_child_cancelled" auto identityLive
+
+def identityUnknown : List Event := worker ++ [observedChild .unknown, event .identityRefused]
+example : outcome auto identityUnknown = .needsDecision := by decide
+example : (run auto (initial auto) identityUnknown).child = .unknown := by decide
+example : (run auto (initial auto) identityUnknown).leased = true := by decide
+#eval showTrace "identity_unknown_child_retains_lease" auto identityUnknown
+
+def identityUnknownService : List Event := worker ++ [unknownService, event .identityRefused]
+example : outcome auto identityUnknownService = .needsDecision := by decide
+example : (run auto (initial auto) identityUnknownService).service = .unknown := by decide
+#eval showTrace "identity_unknown_service_hold" auto identityUnknownService
+
+def identityServiceRestored : List Event := jobStart ++
+  [changedService true, event .identityRefused, event .rollbackVerified]
+example : phases job identityServiceRestored = [.queued, .jobAuthorizing, .jobRunning,
+    .jobRunning, .jobRunning, .jobRollingBack, .needsDecision] := by decide
+example : (run job (initial job) identityServiceRestored).service = .unchanged := by decide
+#eval showTrace "identity_service_restored_before_hold" job identityServiceRestored
+
+def identityServiceNoBackup : List Event := jobStart ++
+  [changedService false, event .identityRefused]
+example : outcome job identityServiceNoBackup = .jobRollbackFailed := by decide
+#eval showTrace "identity_service_backup_unavailable" job identityServiceNoBackup
+
+-- §5.1 R021–R023: retry allowance is consumed before absent-child launch exhaustion.
+def launchExhausted : List Event := [event .admissionChecked,
+  event .runLaunchFailed, event .runLaunchFailed]
+example : outcome auto launchExhausted = .failed := by decide
+example : (run auto (initial auto) launchExhausted).launchRetries = auto.launchRetries := by decide
+example : (run auto (initial auto) launchExhausted).rounds = 0 := by decide
+#eval showTrace "worker_launch_retry_exhausted" auto launchExhausted
+
+def jobLaunchExhausted : List Event := [event .admissionChecked,
+  event .authorizationChecked, event .runLaunchFailed, event .runLaunchFailed]
+example : outcome job jobLaunchExhausted = .jobFailed := by decide
+#eval showTrace "job_launch_retry_exhausted" job jobLaunchExhausted
+
+-- §5.1 R026/R028/R033: handoff, round and repairable-gate failure alternatives.
+def missingWorkerHandoff : List Event := worker ++
+  [{ kind := .runFinished, facts := { resultAvailable := false } }]
+example : outcome auto missingWorkerHandoff = .failed := by decide
+#eval showTrace "missing_worker_handoff" auto missingWorkerHandoff
+
+def safeWorkerFailure : Event := { kind := .runFailed, facts := { safeRetry := true } }
+example : outcome { auto with maxRounds := 1 } (worker ++ [safeWorkerFailure]) =
+    .roundExhausted := by decide
+#eval showTrace "worker_retry_without_round_capacity" { auto with maxRounds := 1 }
+  (worker ++ [safeWorkerFailure])
+
+def retryExhausted : List Event := worker ++
+  [safeWorkerFailure, event .runStarted, safeWorkerFailure]
+example : outcome auto retryExhausted = .failed := by decide
+example : (run auto (initial auto) retryExhausted).retries = auto.runRetries := by decide
+#eval showTrace "worker_run_retry_exhausted" auto retryExhausted
+
+def repairableGateFailure : List Event := worker ++ [event .runFinished,
+  { kind := .gateFailed, facts := { repairable := true } }]
+example : outcome { auto with finishNudges := 0 } repairableGateFailure = .failed := by decide
+#eval showTrace "repairable_gate_nudge_exhausted" { auto with finishNudges := 0 }
+  repairableGateFailure
+
+-- §5.1 R011: invalid continuation evidence cannot authorize a launch.
+def invalidAdmission : List Event :=
+  [{ kind := .admissionChecked, facts := { continuationValid := false } }]
+example : outcome auto invalidAdmission = .needsDecision := by decide
+#eval showTrace "invalid_continuation_admission" auto invalidAdmission
+
+-- §5.1 R013/R024/R036/R038–R042: attention holds and cancellation precede inspection.
+example : outcome auto (worker ++ [event .workspaceUncertain]) = .needsDecision := by decide
+#eval showTrace "workspace_uncertain" auto (worker ++ [event .workspaceUncertain])
+example : outcome auto (worker ++ [event .effectUncertain]) = .needsDecision := by decide
+example : (run auto (initial auto) (worker ++ [event .effectUncertain])).effectUnresolved =
+    true := by decide
+#eval showTrace "effect_uncertain" auto (worker ++ [event .effectUncertain])
+example : outcome auto (worker ++ [event .runFinished, event .checksAbsent]) =
+    .needsDecision := by decide
+#eval showTrace "required_checks_absent" auto (worker ++ [event .runFinished, event .checksAbsent])
+
+def requiredJudgment : Event :=
+  { kind := .judgmentUnavailable, facts := { judgmentRequired := true } }
+def judgmentAbsent : List Event := worker ++ [event .runFinished, requiredJudgment]
+def judgmentLive : List Event := worker ++ [requiredJudgment, event .cancelVerified]
+example : outcome auto judgmentAbsent = .needsDecision := by decide
+example : phases auto judgmentLive =
+    [.queued, .building, .building, .quiescing, .needsDecision] := by decide
+#eval showTrace "required_judgment_unavailable_absent" auto judgmentAbsent
+#eval showTrace "required_judgment_unavailable_live_cancelled" auto judgmentLive
+
+def judgmentFlag (judgment : Judgment) : Event :=
+  { kind := .judgmentResult, facts := { judgment } }
+def flaggedAbsent (judgment : Judgment) : List Event :=
+  worker ++ [event .runFinished, judgmentFlag judgment]
+def flaggedLive (judgment : Judgment) : List Event :=
+  worker ++ [judgmentFlag judgment, event .cancelVerified]
+example : outcome auto (flaggedAbsent .flagLoop) = .needsDecision := by decide
+example : outcome auto (flaggedAbsent .flagReviewGap) = .needsDecision := by decide
+example : outcome auto (flaggedAbsent .needsDecision) = .needsDecision := by decide
+example : phases auto (flaggedLive .flagLoop) =
+    [.queued, .building, .building, .quiescing, .needsDecision] := by decide
+example : phases auto (flaggedLive .flagReviewGap) =
+    [.queued, .building, .building, .quiescing, .needsDecision] := by decide
+example : phases auto (flaggedLive .needsDecision) =
+    [.queued, .building, .building, .quiescing, .needsDecision] := by decide
+#eval showTrace "judgment_flag_loop_absent" auto (flaggedAbsent .flagLoop)
+#eval showTrace "judgment_flag_review_gap_absent" auto (flaggedAbsent .flagReviewGap)
+#eval showTrace "judgment_needs_decision_absent" auto (flaggedAbsent .needsDecision)
+#eval showTrace "judgment_flag_loop_live_cancelled" auto (flaggedLive .flagLoop)
+#eval showTrace "judgment_flag_review_gap_live_cancelled" auto (flaggedLive .flagReviewGap)
+#eval showTrace "judgment_needs_decision_live_cancelled" auto (flaggedLive .needsDecision)
+
+-- §5.1 R049–R050/R070/R078: changed heads discard prior authority.
+def staleHeadAbsent : List Event := approved ++ [eventAtSha .headChanged 2,
+  event .trackerApproved, event .mergeRequested, event .prMerged]
+def staleHeadLive : List Event := gated ++ [event .runStarted,
+  eventAtSha .headChanged 2, event .cancelVerified]
+example : outcome auto staleHeadAbsent = .needsDecision := by decide
+example : (run auto (initial auto) staleHeadAbsent).approved = false := by decide
+example : (run auto (initial auto) staleHeadAbsent).reviewedSha = none := by decide
+example : (run auto (initial auto) staleHeadAbsent).headSha = 2 := by decide
+example : (run auto (initial auto) staleHeadAbsent).mergeRequests = 0 := by decide
+example : phases auto staleHeadLive = [.queued, .building, .building, .gating,
+    .reviewing, .reviewing, .quiescing, .needsDecision] := by decide
+#eval showTrace "stale_head_invalidates_approval_blocks_merge" auto staleHeadAbsent
+#eval showTrace "stale_head_live_reviewer_cancelled" auto staleHeadLive
+
+def staleResume : Event := { kind := .resumeRequested, facts := { headCurrent := false } }
+example : outcome manual (approved ++ [staleResume]) = .needsDecision := by decide
+#eval showTrace "manual_stale_head_resume_refused" manual (approved ++ [staleResume])
+def pausedStaleMerge : List Event := mergeHold ++
+  [event .pauseRequested, event .cancelVerified, staleResume]
+example : outcome auto pausedStaleMerge = .needsDecision := by decide
+example : (run auto (initial auto) pausedStaleMerge).approved = false := by decide
+#eval showTrace "paused_merge_stale_head_resume_refused" auto pausedStaleMerge
+
+-- §5.1 R081/R084/R090: job policy and success evidence remain required.
+def unauthorizedJob : List Event := [event .admissionChecked,
+  { kind := .authorizationChecked, facts := { authorizationSatisfied := false } }]
+example : outcome job unauthorizedJob = .needsDecision := by decide
+#eval showTrace "job_authorization_missing" job unauthorizedJob
+example : outcome job (jobStart ++
+    [{ kind := .jobFinished, facts := { successReceiptsValid := false } }]) = .jobFailed := by decide
+#eval showTrace "job_success_receipt_missing" job (jobStart ++
+  [{ kind := .jobFinished, facts := { successReceiptsValid := false } }])
+def serviceVerifyCrash : List Event := jobStart ++
+  [{ kind := .jobFinished, facts := { serviceRunbook := true } }, event .runFailed]
+example : outcome job serviceVerifyCrash = .jobFailed := by decide
+#eval showTrace "job_verification_run_failed_without_changes" job serviceVerifyCrash
+
+-- §5.1 R088–R089/R102–R103: both normalized failure/control events restore first.
+example : outcome job (jobStart ++ [changedService true, event .runFailed,
+    event .rollbackVerified]) = .jobRolledBack := by decide
+#eval showTrace "service_run_failed_restored" job
+  (jobStart ++ [changedService true, event .runFailed, event .rollbackVerified])
+example : outcome job (jobStart ++ [changedService false, event .runFailed]) =
+    .jobRollbackFailed := by decide
+#eval showTrace "service_run_failed_backup_unavailable" job
+  (jobStart ++ [changedService false, event .runFailed])
+example : outcome job (jobStart ++ [changedService false, event .pauseRequested]) =
+    .jobRollbackFailed := by decide
+#eval showTrace "service_pause_backup_unavailable" job
+  (jobStart ++ [changedService false, event .pauseRequested])
+
+-- §5.1 R098/R100/R103/R106–R108/R115/R129: unsafe effects never become success.
+def cancelFailure : List Event := worker ++ [event .stopRequested, event .cancelFailed]
+example : outcome auto cancelFailure = .needsDecision := by decide
+example : (run auto (initial auto) cancelFailure).leased = true := by decide
+example : (run auto (initial auto) cancelFailure).child = .liveVerified := by decide
+#eval showTrace "cancel_failed_retains_lease" auto cancelFailure
+example : outcome auto (worker ++ [unknownService, event .stopRequested]) =
+    .needsDecision := by decide
+#eval showTrace "stop_unknown_service_safety" auto (worker ++ [unknownService, event .stopRequested])
+example : outcome job (jobStart ++ [changedService false, event .stopRequested]) =
+    .jobRollbackFailed := by decide
+#eval showTrace "service_stop_backup_unavailable" job
+  (jobStart ++ [changedService false, event .stopRequested])
+
+def deadline : Event :=
+  { kind := .ticketDeadline, facts := { deadlineEnabled := true, deadlineExpired := true } }
+example : outcome auto (worker ++ [unknownService, deadline]) = .needsDecision := by decide
+#eval showTrace "deadline_unknown_service_safety" auto (worker ++ [unknownService, deadline])
+example : outcome job (jobStart ++ [changedService true, deadline, event .rollbackVerified]) =
+    .stopped := by decide
+#eval showTrace "service_deadline_restores_before_stopped" job
+  (jobStart ++ [changedService true, deadline, event .rollbackVerified])
+example : outcome job (jobStart ++ [changedService false, deadline]) = .jobRollbackFailed := by decide
+#eval showTrace "service_deadline_backup_unavailable" job (jobStart ++ [changedService false, deadline])
+
+def unsafeResult : List Event := worker ++ [event .resultUnsafe,
+  event .trackerApproved, event .mergeRequested, event .prMerged]
+example : outcome auto unsafeResult = .needsDecision := by decide
+example : (run auto (initial auto) unsafeResult).effectUnresolved = true := by decide
+example : (run auto (initial auto) unsafeResult).leased = true := by decide
+example : (run auto (initial auto) unsafeResult).mergeRequests = 0 := by decide
+#eval showTrace "unsafe_result_hold_blocks_merge" auto unsafeResult
+example : outcome auto (worker ++ [event .storageFailed]) = .failed := by decide
+#eval showTrace "workflow_storage_failed" auto (worker ++ [event .storageFailed])
+
+-- §5.1 R058–R059: an independent closer's concrete receipt must match this head.
+def closerStarted : List Event := decisionHold ++
+  [waiver, event .admissionChecked, event .runStarted]
+def missingCloserReceipt : List Event := closerStarted ++
+  [{ kind := .jobFinished, facts := { approvalReceiptValid := false } }]
+example : outcome auto missingCloserReceipt = .failed := by decide
+example : (run auto (initial auto) missingCloserReceipt).approved = false := by decide
+#eval showTrace "closer_approval_receipt_missing" auto missingCloserReceipt
+
+def refusedCloserActor : List Event := closerStarted ++
+  [{ kind := .jobFinished, facts := { actorValid := false } }]
+example : outcome auto refusedCloserActor = .failed := by decide
+example : (run auto (initial auto) refusedCloserActor).approved = false := by decide
+#eval showTrace "closer_approval_actor_refused" auto refusedCloserActor
+
+example : outcome { auto with closerEligible := false }
+    (closerStarted ++ [event .jobFinished]) = .failed := by decide
+#eval showTrace "closer_ineligible_receipt_refused" { auto with closerEligible := false }
+  (closerStarted ++ [event .jobFinished])
+
+def staleCloserHead : List Event := closerStarted ++
+  [eventAtSha .headChanged 2, event .cancelVerified]
+example : outcome auto staleCloserHead = .needsDecision := by decide
+example : (run auto (initial auto) staleCloserHead).waiverAccepted = false := by decide
+example : (run auto (initial auto) staleCloserHead).waiverSha = none := by decide
+#eval showTrace "stale_closer_head_invalidates_waiver" auto staleCloserHead
+
+def matchingCloserReceipt : List Event := closerStarted ++ [eventAtSha .jobFinished 1]
+example : outcome auto matchingCloserReceipt = .approving := by decide
+example : (run auto (initial auto) matchingCloserReceipt).approved = true := by decide
+example : (run auto (initial auto) matchingCloserReceipt).reviewedSha = some 1 := by decide
+#eval showTrace "closer_matching_receipt_sha" auto matchingCloserReceipt
+
+def mismatchedCloserReceipt : List Event := closerStarted ++ [eventAtSha .jobFinished 99,
+  event .trackerApproved, event .mergeRequested, event .prMerged]
+example : outcome auto mismatchedCloserReceipt = .failed := by decide
+example : (run auto (initial auto) mismatchedCloserReceipt).approved = false := by decide
+example : (run auto (initial auto) mismatchedCloserReceipt).mergeRequests = 0 := by decide
+#eval showTrace "closer_mismatched_receipt_sha_blocks_merge" auto mismatchedCloserReceipt
+
+def newHeadCloserReceipt : List Event := newHeadGated ++
+  [{ kind := .reviewVerdict, facts := { sha := 2, verdict := .needsDecision } },
+   waiver, event .admissionChecked, event .runStarted, eventAtSha .jobFinished 2,
+   eventAtSha .trackerApproved 2, eventAtSha .mergeRequested 2, eventAtSha .prMerged 2]
+example : outcome auto newHeadCloserReceipt = .done := by decide
+example : (run auto (initial auto) newHeadCloserReceipt).headSha = 2 := by decide
+example : (run auto (initial auto) newHeadCloserReceipt).reviewedSha = some 2 := by decide
+#eval showTrace "closer_new_head_matching_receipt_merges" auto newHeadCloserReceipt
+
 -- §5.1 accepted waiver and independently verified closer approval are an
 -- alternate lane. The doc permits this even after a REJECT, without APPROVE.
 def rejectThenWaiver : List Event :=

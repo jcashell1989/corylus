@@ -67,6 +67,69 @@ An independent closer is job mode, but it participates in the same ticket's acce
 
 `Runner/Traces.lean` makes these counterexamples executable: `authorizedManualMerge`, `rejectThenWaiver`, and `repeatedPauseResumes`. The last supports the quantified theorem `worker_launches_unbounded`: for any proposed finite launch bound there is a reachable trace with more launches, one consumed round, and no consumed nudge/run-retry budget. This is a refutation of a total launch bound, not merely one over-budget example.
 
+## Executable failure-row coverage
+
+Every trace below starts at `initial`; no failure state is supplied directly. Every printed example has a kernel-checked `by decide` assertion of its outcome or full phase sequence. Additional assertions check retained leases, invalidated approval, exact SHA, exhausted counters, and absence of merge requests where relevant. These examples use neither native evaluation as proof nor unverified proof placeholders. The index names the strings printed by `#eval`; parameterized judgment traces print a separate name for every normalized flag. Alias rows use representative phases, rather than claiming every phase/event expansion is independently illustrated. Universal preservation proofs cover the full transition matrix.
+
+| §5.1 source rows | Failure/attention branch | Printed trace names |
+|---|---|---|
+| R001 | Unsatisfied dependency hold | `dependency_blocked` |
+| R005 | No worker round available at admission | `admission_round_exhausted` |
+| R011 | Invalid continuation evidence | `invalid_continuation_admission` |
+| R012–R013 | Known workspace failure / uncertain ownership | `workspace_failed`, `workspace_uncertain` |
+| R016 | Refused identity, absent child; no launch | `identity_absent_no_launch` |
+| R017, R099 | Refused identity, verified live child canceled before hold | `identity_verified_child_cancelled` |
+| R018 | Unknown child or service safety; lease retained | `identity_unknown_child_retains_lease`, `identity_unknown_service_hold` |
+| R019, R093 | Identity refusal after service change; restore before decision hold | `identity_service_restored_before_hold` |
+| R020 | Identity refusal after service change, backup unavailable | `identity_service_backup_unavailable` |
+| R021–R022 | Worker launch allowance consumed, then exhausted without consuming a round | `worker_launch_retry_exhausted` |
+| R021, R023 | Standalone-job launch allowance exhausted | `job_launch_retry_exhausted` |
+| R024 | Uncertain effect requires reconciliation | `effect_uncertain` |
+| R026 | Required worker result/handoff missing | `missing_worker_handoff` |
+| R028 | Safe worker retry lacks another round | `worker_retry_without_round_capacity` |
+| R027, R029 | Worker run retry allowance consumed, then exhausted | `worker_run_retry_exhausted` |
+| R029 | Known unsafe or disabled retry | `build_run_failed` |
+| R033 | Repairable gate failure with exhausted nudge allowance | `repairable_gate_nudge_exhausted` |
+| R034–R035 | Nonrepairable required gate failure / deterministic gate error | `gate_failed`, `gate_error` |
+| R036 | Required checks absent without exemption | `required_checks_absent` |
+| R038 | Required judgment unavailable, absent child | `required_judgment_unavailable_absent` |
+| R039, R099 | Required judgment unavailable, verified child canceled | `required_judgment_unavailable_live_cancelled` |
+| R041 | Judgment flag, absent child | `judgment_flag_loop_absent`, `judgment_flag_review_gap_absent`, `judgment_needs_decision_absent` |
+| R042, R099 | Judgment flag, verified child canceled | `judgment_flag_loop_live_cancelled`, `judgment_flag_review_gap_live_cancelled`, `judgment_needs_decision_live_cancelled` |
+| R043 | Malformed review output; subsequent merge events rejected | `malformed_verdict_blocks_merge` |
+| R045–R046 | Rejection at round cap / reviewer decision hold | `reject_at_round_cap`, `needs_decision` |
+| R049 | Changed accepted head invalidates approval and blocks merge | `stale_head_invalidates_approval_blocks_merge` |
+| R050, R099 | Changed head with live reviewer/closer requires cancellation; closer waiver invalidated | `stale_head_live_reviewer_cancelled`, `stale_closer_head_invalidates_waiver` |
+| R055 | Human acceptance declined | `acceptance_declined` |
+| R059 | Missing closer approval evidence, refused/ineligible actor, or concrete receipt SHA mismatch | `closer_approval_receipt_missing`, `closer_approval_actor_refused`, `closer_ineligible_receipt_refused`, `closer_mismatched_receipt_sha_blocks_merge` |
+| R058, R061, R066–R067 | Positive controls: matching closer receipt at initial/new head | `closer_matching_receipt_sha`, `closer_new_head_matching_receipt_merges` |
+| R062 | Tracker refusal/readback failure | `tracker_failed` |
+| R063 | Merge readiness/check/API/readback blocker | `awaiting_merge`, `lost_merge_response_then_readback` |
+| R064 | Forge lacks atomic expected-SHA enforcement | `merge_unsupported` |
+| R070 | Stale accepted head on manual resume | `manual_stale_head_resume_refused` |
+| R078 | Stale saved merge head on pause resume | `paused_merge_stale_head_resume_refused` |
+| R081 | Required standalone-job authorization absent | `job_authorization_missing` |
+| R084 | Non-service success receipt missing | `job_success_receipt_missing` |
+| R085, R087 | No-effect job failure / unsafe run retry | `job_failed`, `job_run_failed` |
+| R088, R092 | Changed service restored after either normalized failure event | `job_rolled_back`, `service_run_failed_restored` |
+| R089 | Changed service, backup unavailable after either failure event | `job_backup_unavailable`, `service_run_failed_backup_unavailable` |
+| R090 | Verification-process failure without changed service | `job_verification_run_failed_without_changes` |
+| R094 | Rollback verification fails | `job_rollback_failed` |
+| R095, R099 | Explicit stop/pause reaches safe outcome after cancellation | `stopped`, `paused` |
+| R098 | Stop cannot establish service safety | `stop_unknown_service_safety` |
+| R100 | Cancellation cannot confirm exit; child and lease retained | `cancel_failed_retains_lease` |
+| R102, R093 | Service stop/pause restores before completing control | `service_stop_restores_before_terminal`, `service_pause_restores_before_hold` |
+| R103 | Service stop/pause with no backup | `service_stop_backup_unavailable`, `service_pause_backup_unavailable` |
+| R105, R099 | Expired ticket deadline cancels before stop | `ticket_deadline` |
+| R106 | Expired deadline with unknown service safety | `deadline_unknown_service_safety` |
+| R107, R093 | Expired service deadline restores before stop | `service_deadline_restores_before_stopped` |
+| R108 | Expired service deadline with no backup | `service_deadline_backup_unavailable` |
+| R115 | Unsafe result holds unresolved effects and rejects merge events | `unsafe_result_hold_blocks_merge` |
+| R123 | Scheduler recovery fails | `scheduler_recovery_failed` |
+| R128–R129 | Scheduler / one-shot workflow persistence failure | `scheduler_storage_failed`, `workflow_storage_failed` |
+
+The printed failure examples cover each failure/attention outcome in the end-state table: `failed`, `stopped`, `round_exhausted`, `acceptance_declined`, `job_failed`, `job_rolled_back`, `job_rollback_failed`, and `scheduler_failed`, plus the nonterminal attention holds. Existing success/control traces also illustrate `done`, `job_succeeded`, `finished_awaiting_human`, `awaiting_acceptance`, and `scheduler_stopped`. Safety flags and receipt fields are abstract evidence; these examples do not test a runtime sanitizer, cancellation driver, backup, or forge.
+
 ## Name mapping
 
 The source tables are authoritative for names. Lean constructors retain their spelling with case conversion only; aliases such as `W`, `R`, and `S` denote finite sets and are not extra phases. Slash-separated events expand to separate events; “Same from-state” is a self-transition, not a phase.
@@ -203,7 +266,7 @@ Row IDs below number the 129 source rows in order, as recorded in `rows.tsv` and
 | `tracker_approval_identity` | A newly acquired tracker approval-session receipt uses an independent actor. | §3.3; §5.1 R060–R061 |
 | `closer_approval_identity` | A newly acquired closer approval-session receipt uses an independent closer. | §3.3 waiver flow; §5.1 R058 |
 | `tracker_approval_acquisition` | Changing tracker approval from false to true requires an independent actor. | §3.3; §5.1 R060–R061 |
-| `closer_approval_acquisition` | Changing closer approval from false to true requires an independent closer. | §3.3 waiver flow; §5.1 R058 |
+| `closer_approval_acquisition` | Newly acquired closer approval requires an independent closer, valid actor/receipt/head facts, and a concrete receipt SHA equal to the current waived head. | §3.3 waiver flow; §5.1 R058 |
 | `initial_approvalInvariant` | Initialization has no approval and satisfies the independent exact-head approval invariant. | §5.1 initial states |
 | `approvalInvariant_rowStep` | Every table row preserves an independent recorded actor and exact current SHA whenever approval is present. | §3.3–4.3; §5.1 R049–R050, R058, R060–R061, R113; complete transition matrix |
 | `approvalInvariant_step` | Schema/current/duplicate filtering preserves the approval invariant too. | §5.1 transition semantics; R117 |

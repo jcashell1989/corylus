@@ -488,7 +488,7 @@ def rowStep (c : Config) (s : State) (e : Event) : State := Id.run do
     if !f.exitZero then return s
     if p == .closerRunning then
       -- §5.1 rows R058–R059: closer approval receipt intentionally substitutes for APPROVE verdict.
-      if closerIndependent c && f.identitiesValid && acceptanceSatisfied c s && f.approvalReceiptValid && f.actorValid && f.headCurrent && s.waiverSha == some s.headSha then
+      if closerIndependent c && f.identitiesValid && acceptanceSatisfied c s && f.approvalReceiptValid && f.actorValid && f.headCurrent && f.sha == s.headSha && s.waiverSha == some s.headSha then
         return { s with
     phase := .approving, child := .absent, approved := true,
           reviewedSha := some s.headSha, approvalSession := some c.closerSession, actorSession := c.closerSession }
