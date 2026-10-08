@@ -30,11 +30,7 @@ def main() -> None:
         for line in transitions.splitlines()
         if line.startswith("|") and "---" not in line
     ]
-    events = {
-        event.strip()
-        for row in expected_rows
-        for event in row[1].split(" / ")
-    }
+    events = {event.strip() for row in expected_rows for event in row[1].split(" / ")}
     source = (project / "Runner/Model.lean").read_text()
     assert constructors(source, "Phase") == {camel(name) for name in phases}
     assert constructors(source, "EventKind") == {camel(name) for name in events}
@@ -51,7 +47,9 @@ def main() -> None:
     for first, last in re.findall(r"R(\d{3})(?:[–-]R(\d{3}))?", implementation):
         referenced.update(range(int(first), int(last or first) + 1))
     assert referenced == set(range(1, 130))
-    print("PASS: 32 phases, 53 events, 129 exact design rows and implementation references")
+    print(
+        "PASS: 32 phases, 53 events, 129 exact design rows and implementation references"
+    )
 
 
 if __name__ == "__main__":
