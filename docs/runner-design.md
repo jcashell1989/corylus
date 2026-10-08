@@ -1,285 +1,326 @@
 # Corylus runner: a harness-agnostic build and review loop
 
-**Design document.** Status: draft for review, not an implementation approval. Owner: Julian.
-Date: 2026-10-08 (US Pacific). Written by an AI agent (Claude Code, acting as Julian's orchestrator).
-Companion: `docs/ticket-centered-sessions.md` (v2.1, on branch `docs/ticket-centered-sessions`), whose Ticket → Attempt → Session model and event-driven state this document adopts.
-
----
+**Design proposal, revised for review.** Owner: Julian. Date: 2026-10-08 (US Pacific).
+Written by an AI agent (Codex (GPT-6.1 Sol)), revising the original Claude Code draft.
+Julian must approve this design before any build ticket starts. This document authorizes no implementation, deployment or merge.
 
 ## 0. The one-paragraph version
 
-Corylus's README describes it as the control layer for an automated agentic work pipeline: agents build, an independent agent judges, Julian decides. The part that actually *runs* that pipeline has lived outside Corylus as a set of shell scripts (internally "loop5") that an orchestrating agent edits in place. It works, but in one week it produced a string of operational bugs that tests would have caught. This document proposes a **runner** module inside Corylus: a headless engine that takes a ticket, runs a worker and then an independent reviewer through any agent harness chosen by configuration, enforces finishing gates, merges only the reviewed revision, and records everything as typed events that the Corylus UI can show. The engine is public and generic; anything specific to one installation (hosts, paths, credentials, house rules) lives in private local config.
+Corylus is the control layer for an automated agentic work pipeline: agents build, an independent agent judges, Julian decides. Its proposed headless runner takes a tracker ticket through build, verification, review and bounded remediation. It supports any harness in either role through configuration, maintains durable state, schedules work without an orchestrator staying online, and merges only an independently reviewed revision with the required human authorization. There are two roles, **worker** and **reviewer**, plus **job mode** for bounded runbook work. The engine and tests are public; installation settings stay private. The first Corylus lane runs one ticket at a time.
 
-## 1. Background: what loop5 does today
+## 1. Background and inputs
 
-For each ticket (from the `td` tracker):
+This revision draws on these sources, summarized without installation identifiers:
 
-1. **Build.** A worker harness (OMP on a cheap model, or Codex) gets a prompt built from shared rules, a role template and a per-ticket guide. It works in its own git worktree, commits, pushes and opens a PR.
-2. **Finish gate.** The engine checks that the work is committed, pushed and has a PR, and that lint and tests pass for the changed files. If not, it resumes the worker once with a short "finish" prompt; if the gate still fails, it stops without spending a review.
-3. **Review.** A fresh reviewer session (Codex) reads the ticket and the PR, reproduces where it can, and ends with exactly one `VERDICT:` line.
-4. **Remediate.** On REJECT, the worker session is resumed with the findings, up to a round limit. On NEEDS-DECISION the loop stops for a human.
-5. **Merge.** On APPROVE, the engine merges the PR only if its head is still the SHA that was reviewed.
+- **Julian's decisions, 2026-10-08**, recorded in `td-a8a0af` and its revision brief: configurable harnesses in both roles; TOML; different sessions by default; the same model warns rather than refuses; two roles plus job mode; a serial Corylus lane.
+- **Tracker approval constraint**, supplied in the same brief: the session that created or worked a ticket cannot approve it. The approval command must execute in the reviewer's eligible tracker session or an independent closer job. Naming the reviewer in a command issued by the orchestrator is insufficient.
+- **Shell-loop operational report, 2026-10-07–08**, supplied in the revision brief: the incidents in §1.1. These are reported observations, not newly reproduced incidents.
+- **Typesafe/Jev research summary**, supplied in the revision brief: a cheap structured-judgment API, best called from harness code with fixed packets rather than exposed as a model tool. This motivates an optional plug-in (§4.5), not a verified integration or quality claim. The specific research report was unavailable through Executor wiki search during this revision.
+- **Corylus [README](../README.md)** and the companion *Ticket-Centered Work Sessions* design (v2.1, `docs/ticket-centered-sessions.md` on branch `docs/ticket-centered-sessions`): Ticket → Attempt → Session grouping, evidence and event-driven state. The companion is a proposal on a separate branch; its historical tracker references do not supersede td.
 
-Around that: a status log, a monitor for deaths and stalls, one-off runbook jobs (deploys) started by hand, and an orchestrator choosing which tickets fill a fixed number of slots.
+Today's shell loop renders a ticket guide, launches a worker in a worktree, checks finishing evidence, launches a fresh reviewer, then remediates a rejection or stops for a decision. A merge requires the reviewed SHA. Monitoring, queue filling, notifications and runbook jobs were added around that loop. The runner brings those responsibilities into tested interfaces.
 
-### 1.1 What went wrong (2026-10-07 to 10-08), and what each implies
+### 1.1 Operational lessons and design implications
 
-| Incident | Root cause | Design implication |
-|---|---|---|
-| Workers edited the admin checkout instead of their worktree | Harness launched with the repo root as its working directory | The engine owns workspace creation and always launches workers inside it (§4.4) |
-| `VERDICT: NEEDS-DECISION` read as "NEEDS" | Verdict parsed with a regex over free text | Strict, tested verdict contract (§3.2) |
-| A loop script lost its executable bit and failed silently | Live scripts edited with `sed` and `mv` | No live editing: installed releases only, tests in CI (§9) |
-| Watcher missed deaths, hangs and some failure lines | State inferred by grepping a log | Typed state and events; monitor built in (§5, §6) |
-| A new PR was "missing" for ~15 s | Forge search index lag | Forge adapter owns lookup and retry semantics (§4.3) |
-| Reviews, resumes after waivers, and deploys run by hand | The loop covered only the happy path | First-class commands for review-only, resume-with-note and jobs (§7) |
-| Flash vs DeepSeek comparison was anecdotal | No per-ticket results | Usage and outcome recorded per attempt (§5.3) |
+| Reported incident | Design implication |
+|---|---|
+| Editing a live script dropped its executable bit; launch failed silently and no start event appeared | Install immutable releases; preflight executability; persist launch intent, enforce a start deadline and emit `run.launch_failed` (§4.1, §5). |
+| A verdict regex missed `NEEDS-DECISION` | Parse the complete final-line enum; malformed or conflicting verdicts cannot approve (§3.2). |
+| Workers launched in the main checkout and edited it | Engine-owned worktrees; check actual launch cwd; prohibit main-checkout execution (§4.4). |
+| A detached watcher never notified | Durable event subscriptions with delivery receipts and retries; attachment to a terminal is irrelevant (§6). |
+| A monitor ignored deaths and hangs until rebuilt | Monitor process identity and progress on every tick; test death, idle and wall deadlines (§6, §9). |
+| A queue runner with a slot cap was needed to keep work moving without the orchestrator | Persistent daemon, durable queue and lane caps; reclaim slots after terminal outcomes (§6). |
+| Draft PRs blocked merges | Read draft state directly; only mark ready after authorization and review gates (§4.3). |
+| Forge search lag temporarily hid new PRs | Prefer recorded PR IDs and exact head-branch lookup; bounded retries; an API error is not “no PR” (§4.3). |
+| A service's config changed but its daemon never reloaded it (resolver incident) | For authorized service jobs, gate backup → change → reload → verify as the service user; restore and reload on failed verification (§4.5). |
+| Reviews, waiver handling and deployment jobs required manual recovery | Explicit review, decision, resume and job commands; persist evidence before each action (§7). |
+| Builder comparisons were anecdotal | Record per-attempt usage, duration and outcome; label missing cost data (§5.3). |
 
-## 2. Goals and non-goals
+## 2. Goals, scope and non-functional requirements
 
-**Goals**
-- Any harness can fill the **worker** or **reviewer** role, chosen by configuration, not code.
-- Headless and testable: the runner works and is tested with no UI running.
-- Independent review is enforced, not hoped for.
-- Every state change is a typed event; the UI and notifications only read events.
-- A clean public/private split.
-- Small enough that cheap builders can implement most of it in single-file tickets.
+Goals: configurable harnesses, independent review, headless operation, typed events, a public/private split and small build tickets. Preserve Corylus's chosen UI and ticket workflows; this proposal adds a runner backend, not a replacement interface.
 
-**Non-goals (for now)**
-- Replacing the tracker. `td` stays the tracker of record; the runner talks to it through an adapter.
-- Deploying. Deploys stay out of the loop; one-off **jobs** (§3.4) cover runbook execution with the same monitoring.
-- Persistent agent sessions as an architectural dependency (per the companion doc §5.8, resume is an optimization).
-- Multi-host distribution. One runner process on one machine.
+Non-goals: replacing td, distributing execution across hosts, automatic deployment, or requiring persistent agent contexts. Job mode can execute an explicitly authorized runbook; it does not turn code acceptance into deployment authorization. Legacy Hermes/Vikunja pipeline code is not the runner's foundation.
+
+### Non-functional requirements
+
+- **Crash safety:** durably write the next state and action intent before acting. Record a receipt afterward. Failed persistence prevents the action.
+- **Idempotent restart:** reconcile unfinished actions against process, tracker and forge state before resuming. Never blindly relaunch, re-approve, re-merge or repeat a live job.
+- **Secret exclusion:** no secrets in events, logs, prompts retained by the runner or published text. Use allowlisted fields and scrub output before storage; reject unsafe output rather than persist it. Credentials stay in the harness/provider's private credential mechanism.
+- **Bounded runs:** every worker, reviewer and job has positive wall-clock, idle and launch timeouts. Cancel the process group, wait a bounded grace period, then kill and record the outcome. Harness output activity alone does not prove useful progress.
+- **Single ownership:** a daemon lock plus ticket leases prevent duplicate execution. Gate, tracker, forge and notification calls also have finite deadlines and retries.
 
 ## 3. Roles and contracts
 
-There are exactly two loop roles, plus a job mode.
-
 ### 3.1 Worker
-Input: the rendered prompt and a worktree. Contract: leave the work **committed, pushed and in an open PR**, and request review on the tracker. The engine does not trust the worker's final message for any of this; the finish gate checks it.
+
+Receives the live ticket, rendered rules/guide, prior findings and its worktree. Leaves committed, pushed work in an open PR, with verification evidence and a tracker review request. The engine verifies those facts independently. A finish nudge may resume the same session once; missing resume support means a fresh session with the persisted handoff.
 
 ### 3.2 Reviewer
-Input: the rendered prompt, the PR, prior findings, and its own review worktree at the PR head. Contract: the **last line of the final message** is exactly one of `VERDICT: APPROVE`, `VERDICT: REJECT`, `VERDICT: NEEDS-DECISION`. Anything else is treated as a failed review run (not as REJECT). An optional fenced `findings` JSON block (file, line, severity, summary) is parsed when present and stored with the verdict.
 
-### 3.3 Independence
-Configurable per pipeline: `session` (default), `model` or `harness`.
-- `session`: the reviewer must be a different session from every worker session on the ticket. Always enforced.
-- If the reviewer uses the **same model** as the worker, the run proceeds but the engine emits a warning event and stores `same_model: true` on the verdict.
-- `model` / `harness` make that condition a hard refusal instead.
+Receives the ticket, exact PR head, verification evidence, prior findings and a separate review worktree. It never receives private worker reasoning. Its final message ends with exactly one of:
+
+```text
+VERDICT: APPROVE
+VERDICT: REJECT
+VERDICT: NEEDS-DECISION
+```
+
+Allow one terminal newline; match the whole last line. Duplicate/conflicting verdict lines, malformed findings, an unknown enum or unsuccessful harness exit produce a failed review run, never approval. An optional fenced `findings` JSON block contains bounded entries `{file, line, severity, summary}`; repository-relative paths only. Store the SHA and reviewer session with every verdict. A changed head invalidates it.
+
+`REJECT` starts the next attempt within `max_rounds` (the total number of build/review attempts, default 2). `NEEDS-DECISION` pauses for Julian. Invalid output stops with a diagnostic; it does not spend an unbounded retry budget.
+
+### 3.3 Independence, approval and waivers
+
+Each run has **two identities**: an opaque harness session reference for resume, and a tracker session ID for authorization. For td, give each fresh run its own `TD_CONTEXT_ID`, run `td usage --new-session` at context creation, and verify the resulting session with `td current`. Persist the context-to-session mapping; resume reuses it without creating a new session. Supply that context only to the child and its tracker command executor; never switch the daemon's global session. An adapter must demonstrate isolated session propagation before supporting approval.
+
+The reviewer must differ from every worker harness session and from all ticket creator/implementer tracker sessions. Unknown identity or eligibility fails closed. Profiles may use either role; the same normalized model in both roles emits `policy.warning` and stores `same_model: true`. It does not refuse review. There is no third loop role.
+
+Normal acceptance:
+
+1. Reviewer finishes with APPROVE for SHA S. Persist the evidence, session IDs and verdict; this alone does not close td or merge.
+2. After the configured human acceptance gate (required by default), execute `td approve TICKET --reason REASON` **with the reviewer's persisted `TD_CONTEXT_ID`**, verifying `td current` still matches before acting. The reason references SHA S, review and acceptance evidence. Verify td's resulting status and reviewer-of-record; save a receipt. Never use the orchestrator's session, `--self-review`, or name-only `--reviewed-by` as a substitute.
+3. Perform a separately authorized, SHA-guarded merge (§4.3). A tracker approval, a merged PR and deployment acceptance are distinct facts. If merge fails, report accepted work awaiting merge, not completion.
+
+Waiver flow: the reviewer records findings and recommends a specific waiver, ending NEEDS-DECISION. Julian may accept or change it; an explicitly delegated “orchestrator waiver” counts only when the ticket records that authority. Persist the decision, scope, author and SHA. An **independent closer job**, using an eligible tracker session, rereads the live ticket, accepted waiver, review and exact head, then records approval in its own session with that evidence. It is job mode, not another role. A recommendation alone cannot close a ticket. A waiver does not bypass session eligibility, secret rules or SHA checks. Code changes require a new review.
+
+Resume with a note does not itself approve or waive anything. Reviewers and closers must not create or implement the ticket they approve. td rejection is a policy stop, never a reason to retry under a fabricated identity. Where an installed td offers weaker trusted-mode shortcuts, the adapter still enforces this design's stricter boundary and validates supported commands at setup.
 
 ### 3.4 Job mode
-`corylus-run job TICKET --profile P --prompt-file F` runs one harness session with no review: the same adapter, limits, events and death/stall detection, ending in a `job.finished` event with the exit status and final message. Use it for runbook tasks (deploys, migrations) that a human has approved. A post-merge hook may start a job only if config explicitly allows it for that pipeline.
+
+One configured harness runs a bounded, approved task without the build/review loop. It records authorization, effects, verification, exit and `job.finished`. A closer is one job kind; service runbooks are another. Success of a harness process alone is not success of the runbook. Post-merge jobs are disabled unless both pipeline policy and recorded authorization permit them.
 
 ## 4. Interfaces
 
-### 4.1 Harness adapter
+Proposed code lives under `runner/`; none exists as a result of this design. Shared dataclasses in `runner/contracts.py` define requests, results, sessions, effects and gate packets. Adapters receive dependencies explicitly and can be tested with fakes.
+
+### 4.1 Harness
 
 ```python
 class Harness(Protocol):
-    name: str
-    def start(self, req: RunRequest) -> RunHandle: ...
-    def resume(self, req: RunRequest, prior: SessionRef) -> RunHandle: ...
-    def poll(self, h: RunHandle) -> RunState: ...      # running | exited(code) | timed_out
-    def result(self, h: RunHandle) -> RunResult: ...
-    def cancel(self, h: RunHandle) -> None: ...
-
-@dataclass(frozen=True)
-class RunRequest:
-    ticket: str
-    role: Literal["worker", "reviewer", "job"]
-    attempt: int
-    prompt: str               # fully rendered
-    cwd: Path                 # worker: its worktree; reviewer: its review worktree
-    model: str
-    params: Mapping[str, str] # harness-specific, e.g. thinking level
-    limits: Limits            # wall time, idle timeout, spend tag
-    artifacts: Path           # logs, session data, final message
-
-@dataclass(frozen=True)
-class RunResult:
-    exit_code: int
-    final_message: str
-    session: SessionRef | None   # opaque; used for resume
-    usage: Usage | None          # tokens/cost when the harness reports them
-    log: Path
+    def start(self, request: RunRequest) -> RunHandle: ...
+    def resume(self, request: RunRequest, prior: SessionRef) -> RunHandle: ...
+    def poll(self, handle: RunHandle) -> RunState: ...
+    def result(self, handle: RunHandle) -> RunResult: ...
+    def cancel(self, handle: RunHandle) -> None: ...
 ```
 
-Most harnesses need **no code**: a generic CLI adapter is driven by declarative config (§8.2). A Python plugin entry point covers harnesses that need an API instead of a CLI.
+`RunRequest`: ticket, attempt, run/effect ID, mode (`worker`, `reviewer`, `job`), prompt, cwd, profile/model, tracker context, output destination and limits. `RunHandle`: PID plus process start identity, launch receipt and session references. `RunState`: starting/running/exited/timed_out with last activity/progress. `RunResult`: exit, sanitized final message, both session identities, optional usage and artifact references.
 
-The adapter, not the engine, knows how to: pass the prompt (argument, stdin or file), find the session id (session directory, log regex or file), read the final message (stdout or an output file), resume, scrub environment variables, close stdin, and enforce the wall-clock and idle limits. Every harness gets a hard wall-clock limit; idle detection uses log and artifact activity.
+A generic CLI adapter takes argv templates, never shell strings; prompts use stdin or a file, not command-line arguments. Preflight executable, cwd, placeholders and output permissions. A launcher persists a claim/receipt keyed by effect ID before starting the child and supervises its process group. Only confirmed start creates `run.started`; failure creates `run.launch_failed`. On an uncertain launch after a crash, reconcile the receipt/process identity or stop for investigation rather than duplicate it.
+
+Harness-specific parsing covers session IDs, final output and progress signals. Resume capability is explicit; fresh-start fallback uses ticket evidence. A Python plug-in can implement an API harness. Configuration examples express the adapter contract, not verified CLI flag compatibility.
 
 ### 4.2 Tracker
 
 ```python
-class Tracker(Protocol):        # td first
+class Tracker(Protocol):
     def get(self, ticket: str) -> Ticket: ...
-    def log(self, ticket: str, message: str) -> None: ...
-    def submit_for_review(self, ticket: str) -> None: ...
-    def approve(self, ticket: str, reviewed_by: str, reason: str) -> None: ...
+    def context(self, run_id: str, prior: TrackerSession | None) -> TrackerSession: ...
+    def log(self, ticket: str, message: str, actor: TrackerSession) -> Receipt: ...
+    def submit(self, ticket: str, actor: TrackerSession) -> Receipt: ...
+    def approve(self, request: ApprovalRequest, actor: TrackerSession) -> Receipt: ...
 ```
 
-The engine records the approval after a valid APPROVE, attributing it to the reviewer session (`reviewed_by`), so no separate "closer" role is needed.
+`Ticket` includes creator/implementer identities, review state and decisions. `ApprovalRequest` includes ticket, SHA, review reference, decision reference and effect ID. `approve` checks eligibility, executes in `actor`'s isolated context and reads back the recorded reviewer/status. On restart, inspect existing approval before repeating. Capability/schema errors stop. Tracker logs include stable effect IDs for reconciliation. Do not run `td export` or edit its scheduled export file.
 
 ### 4.3 Forge
 
-```python
-class Forge(Protocol):          # GitHub first
-    def find_pr(self, ticket: str, branch: str) -> PR | None: ...   # by head branch, search as fallback
-    def head(self, pr: PR) -> str: ...
-    def mark_ready(self, pr: PR) -> None: ...
-    def merge(self, pr: PR, expected_sha: str) -> MergeResult: ...  # refuses if head != expected_sha
-```
-
-The adapter owns forge quirks: search-index lag (look up by head branch first, retry search), draft PRs (mark ready before merge), and API deprecations.
+`Forge.find_pr(repo, branch, recorded_id)`, `head(pr)`, `mark_ready(pr)` and `merge(pr, expected_sha)` return typed results or explicit errors. Lookup uses recorded ID, then exact repository/head branch, then bounded search retries. A draft stays draft until readiness is authorized. Immediately before merge, reread the head and required checks; the merge API must enforce `expected_sha` atomically. A pre-call comparison alone is insufficient. Unsupported SHA enforcement fails closed. Read back the merge receipt, including reviewed head and resulting merge SHA. Review and merge use only the expected PR; never pick a search result by title alone.
 
 ### 4.4 Workspace
 
-```python
-class Workspace(Protocol):
-    def ensure_worktree(self, ticket: str, base: str) -> Worktree: ...  # creates branch + worktree if missing
-    def review_worktree(self, ticket: str, sha: str) -> Worktree: ...   # detached, read-only by convention
-```
+`Workspace.ensure(ticket, repo, base, effect_id)` creates/reuses a dedicated feature branch and worktree; `Workspace.review(ticket, sha)` creates a separate checkout pinned to that SHA. Verify repository identity, branch and cwd before launch. Never switch the main checkout's branch or launch there. Preserve dirty work; uncertain ownership requires a decision. Review worktrees forbid source edits through adapter policy; any modification invalidates review. Cleanup is explicit, never an automatic destructive recovery step.
 
-Worktrees live under a configured private parent directory. Workers are launched *inside* their worktree, never in the main checkout.
-
-### 4.5 Gates
+### 4.5 Gates and optional judgment
 
 ```python
 class Gate(Protocol):
     name: str
-    def check(self, ctx: GateContext) -> list[Failure]: ...
+    def check(self, context: GateContext) -> GateResult: ...
 ```
 
-Built in: `finish` (committed, pushed, PR open, nothing unpushed) and `checks` (lint and tests chosen from the changed files, fail-closed on discovery errors). Pipelines list their gates. A failed gate triggers one resumed "finish" run; a second failure stops the ticket before review.
+`GateContext`: stage, ticket/attempt, repo/worktree, expected SHA, evidence references and sanitized progress packet. `GateResult`: pass/fail/error/advisory, bounded findings and verification receipts. A required gate error blocks progress.
+
+- **Finish:** clean worktree, commit equals upstream head, expected open PR and complete handoff. Check discovery errors fail closed.
+- **Checks:** project-configured lint/tests for the changed scope, tied to that SHA. Record exact command, exit and bounded sanitized output. No applicable lint/test requires an explicit policy decision, never an invented pass. One finish nudge per attempt covers repairable finish/check failures; a second failure stops before review.
+- **Service verification (jobs only):** require a backup receipt, authorized change/reload and checks under the actual service user after reload. Failure triggers restore plus reload and re-verification. Failed rollback stops and alerts. It is not part of every code ticket's finish gate.
+- **Optional Typesafe/Jev:** off by default. Harness-side runner code calls a fixed structured API packet at a suspected stall/loop or before review. Packet: stage, elapsed time, progress counters, repeated-error hashes, gate summaries and bounded sanitized evidence; no credentials, private transcripts or arbitrary model-selected questions. Schema-validate a response such as `continue | flag_loop | flag_review_gap | needs_decision`, with reasons and confidence. Bound call duration, cost, retries and frequency. Record advisory evidence; it cannot approve, waive or replace deterministic checks or the reviewer. Default API failure records `unavailable` and retains normal gates/timeouts; an explicitly required policy blocks on failure. Flags pause for inspection rather than automatically repeating work. The provider schema remains to be verified when that optional ticket is built.
 
 ## 5. State, events and results
 
-### 5.1 Per-ticket state (`state.json`, written atomically)
+### 5.1 Durable state and recovery
 
-```text
-ticket, pipeline, phase (queued | building | gating | reviewing | merging | done | stopped | needs_decision | failed)
-attempts[]: n, worker {profile, session, pid, started, ended, exit}, gate results,
-            review {profile, session, verdict, same_model, findings_ref}, usage
-pr {number, branch}, reviewed_sha, merged_sha
-```
+Use one fsynced, append-only event journal as authority and an atomically replaced `state.json` snapshot as a read cache. Each journal record has schema version, sequence, event ID, time, ticket, attempt, run and lane, plus an allowlisted payload. Replay rebuilds a missing/stale snapshot; reject malformed records and recover only a provably incomplete trailing write. A failed journal write stops dispatch.
 
-State answers "what is running and where": the engine never infers it from logs.
+State includes phase, lane/repository, lease, all worker/reviewer identities, run handles/deadlines, attempts, gate receipts, PR/head, reviewed and merged SHAs, decisions, approval receipts and pending effects. Phases: queued → building → gating → reviewing → awaiting_acceptance → approving → awaiting_merge/merging → done; stopped, failed and needs_decision are explicit exits. Job state uses the same run/effect records.
 
-### 5.2 Events (`events.jsonl`, append-only)
+Each external effect follows **intent → action → observed receipt**. After restart, reclaim the daemon lock, replay, validate child identity, and reconcile pending effects using their IDs. A lost merge response is checked through the forge; a lost approval response through td. A live child remains monitored without relaunch. Unknown processes or non-idempotent job effects pause for a decision. Exactly-once external execution is not assumed. Missing evidence never means success.
 
-`ticket.queued`, `attempt.started`, `run.started`, `run.finished`, `gate.failed`, `gate.passed`, `review.verdict`, `pr.merged`, `ticket.stopped`, `ticket.needs_decision`, `run.died`, `run.stalled`, `job.finished`, `runner.heartbeat`, `policy.warning`.
+### 5.2 Events and notification delivery
 
-Each event: timestamp, ticket, attempt, run id, type, small payload. The human-readable status line is rendered *from* events and is never parsed. Notification hooks (for example Telegram) subscribe by event type.
+Core events: `ticket.queued`, `attempt.started`, `effect.planned`, `effect.observed`, `run.start_requested`, `run.started`, `run.launch_failed`, `run.finished`, `run.died`, `run.stalled`, `run.timed_out`, `gate.passed`, `gate.failed`, `review.verdict`, `decision.recorded`, `tracker.approved`, `pr.merged`, `ticket.stopped`, `ticket.needs_decision`, `job.finished`, `runner.heartbeat`, `policy.warning` and `judgment.unavailable`.
+
+Events contain evidence references and reason codes, not raw prompts/output or secret configuration. Render status from events; never parse status text back into state. Notifications use a durable consumer cursor and delivery ID: at-least-once delivery, deduplication where supported, bounded retries and visible terminal failure. An offline notification sink must not lose the ticket's decision state.
 
 ### 5.3 Results
 
-Each attempt records: rounds used, wall time per run, gate failures, verdict and findings count, and usage (tokens and cost) from the harness or from a gateway spend tag. `corylus-run results --by profile` answers "which builder works best for which kind of ticket" from data.
-
-These map directly onto the companion doc: ticket → attempts → sessions, with reviews and verification as evidence (§5.9 there). The Corylus ticket page reads the same state and events.
+Record duration, rounds, gate failures, review findings, outcome and optional token/cost usage per attempt/profile. Unknown cost is “unavailable,” not zero. Results and the future UI consume journal-derived records. A ticket owns attempts; attempts own disposable sessions and verification/review evidence. A worker note carries assumptions and next steps without becoming a second database.
 
 ## 6. Scheduler and monitor
 
-- A **queue** of tickets with a pipeline and optional per-ticket overrides.
-- A **concurrency cap** (global, and optionally per profile). When a slot frees, the next queued ticket starts.
-- The **monitor** runs inside the runner: on every tick it checks that each running run's process is alive (`run.died` otherwise), that its artifacts are changing (`run.stalled` after the idle limit), and emits a `runner.heartbeat`. Deaths and stalls follow a configured policy: stop, or retry once.
-- A **launch check**: a run that does not reach `run.started` within a deadline is a failure event, never silence.
+A durable queue stores ticket, repository, pipeline, lane and validated overrides. Dependencies and human holds come from live tracker state. A leaf ticket has one lease; parents are planning containers, not worker jobs. Duplicate enqueue is idempotent.
+
+Support global and **per-lane caps**, with lanes selected by repository or queue. For now, lane `corylus` has cap **1**: only one Corylus ticket workflow or standalone job is active. Its worker, reviewer and closer run sequentially within that slot; an internal closer does not enqueue behind itself. Waiting for a human releases the slot; resumed work reacquires it. Never release a slot while its child is alive. Additional lanes can run independently within the global cap. Optional profile caps further restrict admission. FIFO among eligible work, round-robin across lanes, avoids starvation.
+
+The daemon fills free slots after exits even if the orchestrator disconnects. Each monitor tick checks process start identity, exits, launch deadlines, wall deadline and idle progress. The hard idle timeout is independent of an optional judgment detector. Stop by default on death/stall; a configured retry is limited to one safe, reconciled retry. A heartbeat does not excuse missing per-run checks. Stop/pause persists intent before cancellation; pause prevents new work, while stop cancels active work with a receipt. Notification delivery runs in the daemon, not a detached watcher.
 
 ## 7. Command line
 
 ```text
-corylus-run run TICKET [--pipeline P] [--worker PROFILE] [--reviewer PROFILE] [--max-rounds N]
-corylus-run review TICKET [--reviewer PROFILE]        # review-only: work done elsewhere
-corylus-run resume TICKET --note "waiver: …"          # resume the worker session with a message
-corylus-run job TICKET --profile P --prompt-file F    # one-off, no review
-corylus-run stop TICKET | pause TICKET
-corylus-run queue add TICKET… | queue list
-corylus-run status [TICKET]                            # rendered from state/events
-corylus-run results [--by profile|pipeline]
-corylus-run daemon                                     # scheduler + monitor
 corylus-run config check | config show
+corylus-run run TICKET [--pipeline P] [--worker PROFILE] [--reviewer PROFILE]
+corylus-run review TICKET [--reviewer PROFILE]
+corylus-run decision TICKET --file FILE
+corylus-run resume TICKET --note-file FILE
+corylus-run job TICKET --profile P --prompt-file FILE --authorization REF
+corylus-run stop TICKET | pause TICKET
+corylus-run queue add TICKET --lane L | queue list
+corylus-run status [TICKET]
+corylus-run results [--by profile|pipeline|lane]
+corylus-run daemon
 ```
+
+Foreground commands enqueue/drive the same engine; they cannot compete with a daemon's lease. Review-only discovers existing work and pins its head. Decision files record acceptance, merge authorization or a scoped waiver; missing authority is rejected. Resume notes are sanitized and preserved as evidence. No flags bypass independence, gates or effect reconciliation. Every published PR body/comment identifies its AI author; adapters enforce this for runner-authored text, and the finish gate checks worker publication evidence.
 
 ## 8. Configuration
 
-### 8.1 Format: TOML
-TOML is read by the Python standard library (`tomllib`), which fits Corylus's minimal-dependency stance; our config is flat, named tables, where TOML is at its best; and it has comments and explicit types. YAML (a dependency, plus implicit type coercion), KDL (a dependency, little tooling) and CUE/Pkl/Nickel (an extra toolchain) were considered and rejected. Ergonomics come from tooling rather than syntax:
+### 8.1 Why TOML
 
-- **Layering:** packaged defaults, then the private local file, then CLI flags.
-- **`config check`:** schema validation with errors that name the table and key (unknown placeholder, role not allowed for profile, missing harness).
-- **`config show`:** the effective merged config, annotated with where each value came from.
+| Format | Assessment |
+|---|---|
+| TOML | Standard-library `tomllib` on Python 3.11+, typed named tables, comments; recommended and accepted by Julian. |
+| YAML | Familiar but adds a parser dependency and implicit-type pitfalls. |
+| KDL | Readable but adds a dependency and less common tooling. |
+| CUE / Pkl / Nickel | Strong validation but an extra toolchain for a small runner. |
 
-### 8.2 Shape
+Layer packaged defaults → private local config → validated CLI overrides. `config check` names invalid tables/keys, role mismatches, unknown placeholders, absent harnesses, invalid lane mappings and missing timeouts. `config show` explains value provenance using an allowlist; omits credential values and locations. Freeze an effective config digest per attempt; policy changes require explicit reconciliation at resume.
+
+### 8.2 Illustrative valid TOML
 
 ```toml
-[harness.omp]
-command   = ["omp", "-p", "--auto-approve", "--model", "{model}", "--thinking", "{thinking}",
-             "--cwd", "{cwd}", "--session-dir", "{session_dir}", "{prompt}"]
-resume    = ["omp", "-p", "--auto-approve", "--model", "{model}", "--cwd", "{cwd}",
-             "--session-dir", "{session_dir}", "-c", "{prompt}"]
-session   = { from = "session_dir" }        # session_dir | log_regex | file
-final     = "stdout"                         # stdout | file:{out}
-env_unset = ["CLAUDECODE"]
-billing   = "metered"                        # metered | subscription
+[harness.generic]
+command = ["example-agent", "run", "--model", "{model}"]
+resume = ["example-agent", "resume", "{session_id}"]
+prompt = "stdin"
+session = { from = "output_json", field = "session_id" }
+final = { from = "output_json", field = "final_message" }
+billing = "metered"
 
-[harness.codex]
-command = ["codex", "exec", "-m", "{model}", "-C", "{cwd}", "-o", "{out}", "{prompt}"]
-resume  = ["codex", "exec", "resume", "{session_id}", "-m", "{model}", "-o", "{out}", "{prompt}"]
-session = { log_regex = "session id: ([0-9a-f-]+)" }
-final   = "file:{out}"
-billing = "subscription"
+[profile.builder]
+harness = "generic"
+model = "example-small-model"
+roles = ["worker", "reviewer"]
+max_wall_seconds = 3600
+idle_timeout_seconds = 1200
+launch_timeout_seconds = 30
 
-[profile.cheap-worker]
-harness = "omp"; model = "provider/some-flash-model"; thinking = "medium"
-roles = ["worker"]; max_wall = "60m"; idle_timeout = "20m"
-
-[profile.strong-reviewer]
-harness = "codex"; model = "some-large-model"; roles = ["worker", "reviewer"]; max_wall = "90m"
+[profile.reviewer]
+harness = "generic"
+model = "example-large-model"
+roles = ["worker", "reviewer"]
+max_wall_seconds = 5400
+idle_timeout_seconds = 1200
+launch_timeout_seconds = 30
 
 [pipeline.default]
-worker = "cheap-worker"; reviewer = "strong-reviewer"
-max_rounds = 2; gates = ["finish", "checks"]; independence = "session"
+worker = "builder"
+reviewer = "reviewer"
+max_rounds = 2
+gates = ["finish", "checks"]
+independence = "session"
+human_acceptance = true
+merge = "manual"
 
-[policy]
-forbid = [{ harness = "claude", billing = "metered" }]   # example of an installation rule
+[scheduler]
+global_cap = 1
+
+[lane.corylus]
+cap = 1
+repositories = ["corylus"]
+
+[gate.judgment]
+enabled = false
+required = false
+stages = ["suspected_stall", "pre_review"]
 ```
 
+`roles` restricts the two loop roles; job-enabled profiles additionally require a separate `allow_jobs` policy. Real harness argv/session formats need adapter conformance tests. Models in examples are placeholders. Installation policy may forbid a harness/billing combination; it never silently substitutes a different harness.
+
 ### 8.3 Public versus private
-- **Public (this repo):** the engine, adapters, generic role templates, an example config, and tests with stub harnesses.
-- **Private (local file, outside any repo):** real profiles and models, harness flags that encode local policy, worktree parent, forge/tracker settings, credentials by file path, and the installation's house rules, which are appended to role prompts.
+
+Public: engine, interfaces, generic templates, synthetic examples and stub tests. Private: repository bindings, workspace locations, real models/harness flags, rules, service runbooks and provider configuration. Reference credentials through the existing private harness/provider mechanism; do not copy them into runner config or serialize environment values. Restrict state/artifact permissions to the runner user. Never publish installation hosts, addresses, paths or credential locations from private inputs.
 
 ## 9. Testing and release
 
-- **Stub harness:** a scriptable fake CLI (exit code, final message, session id, delay, hang, crash, edits to the worktree). It drives the whole loop in CI: happy path, REJECT then APPROVE, NEEDS-DECISION, malformed verdict, gate failure then nudge, gate failure twice, death, stall, launch failure, head moved before merge, draft PR, search lag.
-- **No live editing.** The runner is installed from a tagged release or main at a known commit. Local changes go through a PR, review and CI like any other ticket.
+Use a scriptable fake CLI and temporary Git/td projects, plus fake forge, clock, judgment and notification services. No production credentials or live service changes in tests. Required scenarios:
 
-## 10. Migration from loop5
+- APPROVE, REJECT then APPROVE, NEEDS-DECISION, malformed/duplicate verdicts and invalid findings.
+- Finish nudge success, second failure, failed lint/test discovery and stale-SHA evidence.
+- Missing executable, lost launch receipt, death, hang, idle/wall deadlines and child cleanup.
+- Crash before/after every effect; snapshot replay; duplicate queue/resume; no duplicate launch, approval or merge.
+- Creator/worker approval refusal, actual reviewer-context approval, same-model warning, accepted waiver → independent closer, and unauthorized waiver refusal.
+- Lane cap 1, other lanes, slot recovery, held tickets and internal closer without deadlock.
+- Draft handling, delayed PR discovery, forge errors, atomic SHA guard and lost merge response.
+- Notification outage/retry, sanitization before persistence, judgment unavailable/malformed output and unchanged deterministic gates.
+- Authorized service job: backup, reload, service-user verification and rollback on failure.
 
-1. Build the runner in small tickets (§11) while loop5 keeps running, frozen except for urgent fixes.
-2. Run both on a few low-risk tickets; compare events and outcomes.
-3. Switch the orchestrator to `corylus-run`; retire loop5. Its lessons (§1.1) become regression tests.
-4. The Corylus UI's ticket page then reads runner state and events.
+Run targeted Python unit tests and Ruff; end-to-end fakes run in CI. Install from a reviewed known commit/tag, preserving executable permissions. No edits to a running release. Restart/readiness probes must show a start event and working monitor/notification consumer, not just a live PID.
 
-Also: isolate or retire Corylus's legacy Hermes/Vikunja pipeline code so the runner does not build on it.
+## 10. Migration from the shell loop
 
-## 11. Implementation tickets (sized for cheap builders where marked)
+After Julian accepts the design, create the §11 tickets. Build alongside the existing loop, without changing it through this ticket. First compare captured evidence offline. Then run the new runner on selected low-risk tickets in its own lane: **one executor owns a ticket**, never two live loops acting on it. Verify restart and timeout drills before enabling unattended scheduling. Keep the old loop recoverable until acceptance. Integrate journal-derived records into the existing ticket UI in a separately reviewed change; do not replace the interface or depend on legacy tracker code.
 
-1. Config schema, layering, `config check` / `config show` (small)
-2. State file and event log library, atomic writes, rendering a status line (small)
-3. Stub harness CLI for tests (small)
-4. Generic CLI harness adapter: start, resume, session id, final message, limits (medium)
-5. Verdict and findings parser (small)
-6. td tracker adapter (small)
-7. GitHub forge adapter with head-branch lookup, draft handling, SHA-guarded merge (small)
-8. Workspace adapter (small)
-9. Gates: port `finish` and `checks` from the homelab versions (small)
-10. Engine: one ticket through build → gate → review → remediate → merge, on stub harnesses (Codex)
-11. Scheduler, monitor and daemon (Codex)
-12. CLI (small, after 10)
-13. Results and per-profile report (small)
-14. End-to-end CI scenarios (§9) (medium)
+## 11. Ordered build plan
 
-## 12. Open questions
+These are proposed slices, not created or started tickets. Names and files form a suggested contract; each slice delivers a testable unit using fakes before its consumers exist. Tests live in `tests/runner/`. “Cheap” means a bounded cheap-builder task; “Codex” marks lifecycle or safety complexity. Each step lists explicit predecessor numbers. Package scaffolding belongs to step 1; later steps add one or two production files plus tests where practical.
 
-1. Where does the daemon run, and should it start at boot?
-2. Should job mode require an explicit human approval token per run, or is config allowance enough?
-3. Per-ticket spend caps: enforce through the gateway (spend tags and key budgets), in the runner, or both?
-4. How should the ticket page show `same_model` warnings and policy refusals?
+| # / ticket | Files and interface delivered | Acceptance tests | Size / dependencies |
+|---|---|---|---|
+| 1. Shared contracts | `runner/__init__.py`, `runner/contracts.py`: requests/results, identities, effect/receipt, gate/event/state types | Reject invalid enum, identity and timeout fields; serialization round-trip | Cheap; none |
+| 2. Configuration | `runner/config.py`, `runner/example.toml`: load/layer/validate/redacted show | Parse example; precedence, unknown keys, roles, caps and missing limits | Cheap; 1 |
+| 3. Durable journal | `runner/store.py`: append/replay/snapshot, intent/receipt IDs and lock | Crash boundaries, fsync failure, partial tail, replay, lock contention | Codex; 1 |
+| 4. Stub harness | `tests/runner/stub_cli.py`: programmable output/session/exit/progress behavior | Subprocess emits success, crash, hang and invalid verdict fixtures | Cheap; 1 |
+| 5. Workspace | `runner/workspace.py`: ensure/review worktrees | Temporary repo; idempotent ensure, main-cwd refusal, dirty preservation, pinned head | Cheap; 1 |
+| 6. Durable launcher | `runner/launcher.py`: claim/spawn/receipt/process-group control | Missing executable, start deadline, uncertain spawn, identity mismatch, cancellation | Codex; 1, 3, 4 |
+| 7. CLI harness | `runner/harness.py`: Harness implementation and scrub-before-store output boundary | stdin prompt, argv placeholders, session/final parsing, resume/fresh fallback, limits, secret-output refusal | Codex; 2, 4, 6 |
+| 8. Verdict parser | `runner/verdict.py`: final-line enum and findings | Hyphenated verdict, duplicates, invalid JSON, unsafe paths, failed exit | Cheap; 1 |
+| 9. Tracker read/session | `runner/tracker.py`: get/context/log/submit | Isolated tracker contexts, live identity discovery, malformed capability/schema, effect-tagged logs | Codex; 1 |
+| 10. Tracker approval | Extend `runner/tracker.py`: eligibility and approval/readback | Real temporary td project: worker/creator refusal, reviewer succeeds, refusal stops; lost response reconciliation | Codex; 3, 9 |
+| 11. Forge | `runner/forge.py`: lookup/head/ready/atomic merge | Exact branch, search lag, draft, API errors, moved head, lost response | Cheap; 1 |
+| 12. Finish/check gates | `runner/gates.py`: Gate plus finish/check implementations | Clean/upstream/PR checks, discovery fails closed, commands and receipts tied to SHA | Cheap; 1, 5, 11 |
+| 13. Review policy | `runner/policy.py`: identities/model warning, acceptance/waiver validation | Unknown identity refusal, same-model warning, unauthorized/stale waiver, reviewer versus closer eligibility | Cheap; 1, 8, 9 |
+| 14. Single-ticket engine | `runner/engine.py`: pure transitions emitting effect requests | Build/gate/review/remediation, one nudge, round bound, holds and no success on missing receipt | Codex; 1, 8, 13 |
+| 15. Effect driver/recovery | `runner/driver.py`: execute/reconcile engine effects | Stub full workflow; crashes around launch/approval/merge; no duplicate effects | Codex; 3, 5, 7, 10–14 |
+| 16. Monitor | `runner/monitor.py`: tick/deadline/cancel decisions | Fake clock death, PID reuse, log-only activity, idle/wall/launch deadlines | Codex; 3, 6, 7 |
+| 17. Queue/lanes | `runner/scheduler.py`: durable enqueue/admission/leases | Corylus cap 1, global/profile caps, FIFO/fairness, dependency holds, slot recovery | Cheap; 2, 3 |
+| 18. Daemon | `runner/daemon.py`: ownership, scheduling, driver/monitor ticks and injectable job executor | Orchestrator disconnect, restart, simultaneous commands, human hold release, closer slot reuse with fake job | Codex; 15–17 |
+| 19. Jobs/closer | `runner/jobs.py`: authorized bounded jobs and independent closer | Waiver recommendation + accepted decision + independent approval; missing authority; uncertain live effect pauses | Codex; 7, 10, 13, 15, 18 |
+| 20. CLI | `runner/cli.py`: §7 commands | Argument validation, sanitized config/status, lease-safe enqueue, review-only, decisions and jobs | Cheap; 2, 3, 18, 19 |
+| 21. Notifications/results | `runner/notify.py`, `runner/results.py`: cursor delivery and reports | Outage/retry/dedup, visible delivery failure, unavailable cost, deterministic replay reports | Cheap; 3, 18 |
+| 22. Service-job gate | `runner/service_gate.py`: runbook effect receipts and service-user probe | Fake backup/change/reload/verify; failed verification restores/reloads; failed rollback alerts | Codex; 12, 19 |
+| 23. Optional judgment | `runner/judgment.py`: fixed packets behind Gate, disabled by default | Sanitization, bounded call, bad schema, unavailable, flag pauses, never grants approval | Cheap; 2, 12, 16 |
+| 24. Release/regression suite | `tests/runner/test_e2e.py`, `.github/workflows/runner.yml`; release notes in `docs/runner-release.md` | §9 matrix, targeted/unit CI and Ruff; installed executable/start/restart smoke checks | Codex; 1–23 |
+
+Step 24 has three files because CI and the release runbook accompany the integration suite; it implements no new runtime behavior. UI consumption is a later design/build slice, preserving existing workflows. Approval of this proposal is not approval to start all tickets unattended.
+
+## 12. Open questions with recommended defaults
+
+| Question | Recommended default for Julian to accept or change |
+|---|---|
+| Where does the daemon run, and should it start at boot? | One designated local runner account/machine, supervised and enabled at boot **after** restart drills pass. Installation binding stays private; initially run manually. |
+| Does job mode need an explicit human approval token per run, or is config allowance enough? | Require a durable per-run authorization reference scoped to ticket, job kind and allowed effects. Config enables capability; it does not grant authority. A closer needs accepted review/waiver evidence. |
+| Per-ticket spend caps: gateway, runner or both? | Both where supported: provider enforces the hard budget, runner stops on reported usage and always enforces timeouts. Missing metering is visible; refuse a strict monetary cap that cannot actually be enforced. |
+| How should the ticket page show same-model warnings and policy refusals? | Warning alongside review evidence, without blocking acceptance. Refusal/NEEDS-DECISION in the ticket's attention area with reason and next action; detailed evidence folded into the attempt timeline. Preserve the current interface. |
+| When may the runner merge after review? | `merge = "manual"` initially. Later enable runner merge only with a recorded human authorization for the exact reviewed head and atomic forge enforcement. |
+| Should Typesafe/Jev flags stop work automatically? | Off initially; when enabled, advisory flags pause for inspection. Benchmark false positives before enabling stronger policy. Unavailable optional judgment never disables deterministic safety checks. |
