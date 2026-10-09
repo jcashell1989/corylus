@@ -25,9 +25,9 @@ R023	`job_running`	run.launch_failed	Child absent; launch budget exhausted	`job_
 R024	`W`	effect.uncertain	Process/approval/job result cannot be reconciled (merge uncertainty uses merge.blocked)	`needs_decision`	queued,building,gating,reviewing,awaiting_acceptance,approving,merging,job_authorizing,job_running,job_verifying,job_rolling_back,closer_running,quiescing,finished_awaiting_human,needs_decision,dependency_blocked,paused,awaiting_merge	effect.uncertain	needs_decision
 R025	`building`	run.finished	Exit 0; sanitized result available	`gating`	building	run.finished	gating
 R026	`building`	run.finished	Exit 0; required result/handoff unavailable	`failed`	building	run.finished	failed
-R027	`building`, `reviewing`, `closer_running`	run.failed	Crash/nonzero/idle/wall deadline; confirmed safe retry; budget remains; if worker, another round available	Same from-state	building,reviewing,closer_running	run.failed	building,reviewing,closer_running
-R028	`building`	run.failed	Safe retry available but no worker round capacity	`round_exhausted`	building	run.failed	round_exhausted
-R029	`building`, `reviewing`, `closer_running`	run.failed	Retry disabled/exhausted or known unsafe to repeat	`failed`	building,reviewing,closer_running	run.failed	failed
+R027	`building`, `reviewing`, `closer_running`	run.failed	Not a provider/budget failure; crash/nonzero/idle/wall deadline; confirmed safe retry; budget remains; if worker, another round available	Same from-state	building,reviewing,closer_running	run.failed	building,reviewing,closer_running
+R028	`building`	run.failed	Not a provider/budget failure; safe retry available but no worker round capacity	`round_exhausted`	building	run.failed	round_exhausted
+R029	`building`, `reviewing`, `closer_running`	run.failed	Not a provider/budget failure; retry disabled/exhausted or known unsafe to repeat	`failed`	building,reviewing,closer_running	run.failed	failed
 R030	`gating`	gate.passed	More configured gates remain	`gating`	gating	gate.passed	gating
 R031	`gating`	gate.passed	All required gates passed/exempted at current head	`reviewing`	gating	gate.passed	reviewing
 R032	`gating`	gate.failed	Repairable finish/check failure; nudge budget remains	`building`	gating	gate.failed	building
@@ -84,8 +84,8 @@ R082	`job_running`	job.finished	Exit 0; non-service; required effect/verificatio
 R083	`job_running`	job.finished	Exit 0; authorized service runbook	`job_verifying`	job_running	job.finished	job_verifying
 R084	`job_running`	job.finished	Exit 0 but non-service success evidence missing	`job_failed`	job_running	job.finished	job_failed
 R085	`J`	job.failed	Known failure; no changed service state	`job_failed`	job_running,job_verifying	job.failed	job_failed
-R086	`job_running`	run.failed	Confirmed no effects; safe retry budget remains	`job_running`	job_running	run.failed	job_running
-R087	`job_running`	run.failed	No changed service state; safe retry guard false	`job_failed`	job_running	run.failed	job_failed
+R086	`job_running`	run.failed	Not a provider/budget failure; confirmed no effects; safe retry budget remains	`job_running`	job_running	run.failed	job_running
+R087	`job_running`	run.failed	Not a provider/budget failure; no changed service state; safe retry guard false	`job_failed`	job_running	run.failed	job_failed
 R088	`J`	job.failed / run.failed	Service state changed; backup receipt available	`job_rolling_back`	job_running,job_verifying	job.failed,run.failed	job_rolling_back
 R089	`J`	job.failed / run.failed	Service state changed; backup unavailable	`job_rollback_failed`	job_running,job_verifying	job.failed,run.failed	job_rollback_failed
 R090	`job_verifying`	run.failed	No changed service state	`job_failed`	job_verifying	run.failed	job_failed
@@ -128,3 +128,4 @@ R126	`scheduler_stopping`	scheduler.tick	Active workflows/children remain	`sched
 R127	`scheduler_stopping`	scheduler.tick	No active workflows/children; receipts durable	`scheduler_stopped`	scheduler_stopping	scheduler.tick	scheduler_stopped
 R128	`scheduler_recovering`, `scheduler_watching`, `scheduler_stopping`	storage.failed	Journal cannot be safely written	`scheduler_failed`	scheduler_recovering,scheduler_watching,scheduler_stopping	storage.failed	scheduler_failed
 R129	`W`	storage.failed	One-shot owner; journal cannot be safely written	`failed`	queued,building,gating,reviewing,awaiting_acceptance,approving,merging,job_authorizing,job_running,job_verifying,job_rolling_back,closer_running,quiescing,finished_awaiting_human,needs_decision,dependency_blocked,paused,awaiting_merge	storage.failed	failed
+R130	`R`	run.failed	Confirmed provider/budget failure; no changed/unknown service state; child absent/exited; effects reconciled	`needs_decision`	building,reviewing,job_running,closer_running	run.failed	needs_decision

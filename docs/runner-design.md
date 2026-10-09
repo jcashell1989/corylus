@@ -20,6 +20,8 @@ This revision draws on these sources, summarized without installation identifier
 
 Today's shell loop renders a ticket guide, launches a worker in a worktree, checks finishing evidence, launches a fresh reviewer, then remediates a rejection or stops for a decision. A merge requires the reviewed SHA. Monitoring, queue filling, notifications and runbook jobs were added around that loop. The runner brings those responsibilities into tested interfaces.
 
+The 2026-10-08 loop5 follow-up in `td-cb6a7f` supplies the lessons in §1.2. Its named README/scripts reference was unavailable in this revision's checkout; these remain ticket-reported observations, not independently verified script behavior. Renaming the runner to loop5 is separate work (`td-14f2b1`); this revision changes no names.
+
 ### 1.1 Operational lessons and design implications
 
 | Reported incident | Design implication |
@@ -36,6 +38,22 @@ Today's shell loop renders a ticket guide, launches a worker in a worktree, chec
 | Reviews, waiver handling and deployment jobs required manual recovery | Explicit review, decision, resume and job commands; persist evidence before each action (§7). |
 | A manual/no-merge lane finished at review approval but was reported as dead | Persist `finished_awaiting_human` as an invocation-terminal outcome; no merge event is expected (§5–6). |
 | Builder comparisons were anecdotal | Record per-attempt usage, duration and outcome; label missing cost data (§5.3). |
+
+### 1.2 Lessons from loop5 (2026-10-08)
+
+| Lesson | Where it is handled | Added or already covered |
+|---|---|---|
+| 1. Draft PR must be ready before merge at the reviewed SHA | §4.3 Forge; readiness readback and atomic SHA guard | Already covered |
+| 2. Provider/budget failures must allow same-worktree fallback without burning remediation rounds | §4.1 Harness; §5.1 infrastructure hold and same-attempt resume | Added |
+| 3. Rerun with new findings/decisions and same-session resume | §3.1 Worker; §5.1 new-input continuation; §7 file input | Added |
+| 4. Decisions arriving mid-round need a boundary inbox or stop/restart | §4.2 Tracker; versioned decision inbox | Added |
+| 5. Reviewer must prove worktree HEAD equals reviewed SHA | §3.2 Reviewer; §4.4 Workspace; explicit HEAD receipt | Added to existing pinning contract |
+| 6. One-off closers, digests and external-agent PR remediation | §3.4 Job mode; §7 review-only entry and bounded follow-up | Added examples/entry contract; closer already covered |
+| 7. Operator commands must avoid shell command substitution | §4.1 Harness; §7 prompt/note files and stdin | Already covered |
+| 8. One persistent watcher must recognize every job kind | §6 Scheduler and monitor; kind-independent liveness | Added explicit job coverage; persistent owner already covered |
+| 9. Ticket-specific credential allowances name exact private paths | §8.3 Public versus private; scoped allowance | Added |
+| 10. Run-labelled gateway requests and aggregate budget/usage reporting | §5.3 Results; request correlation and run totals | Added |
+| 11. Acceptance must identify the current phase and completion boundary | §4.5 Gates; phase-scoped acceptance contract | Added |
 
 ## 2. Goals, scope and non-functional requirements
 
@@ -57,6 +75,8 @@ Non-goals: replacing td, distributing execution across hosts, automatic deployme
 
 Receives the live ticket, rendered rules/guide, prior findings and its worktree. Leaves committed, pushed work in an open PR, with verification evidence and a tracker review request. The engine verifies those facts independently. A finish nudge uses the configured budget (§8.2, default one per attempt), resuming the same session when supported; otherwise it starts a fresh session with the persisted handoff. It remains the same round.
 
+An authorized rerun can supply a versioned findings packet (including an initial `r0` packet) with recorded orchestrator decisions. Preserve its provenance and the prior handoff; a note is input, not a waiver. Resume the same eligible harness/tracker session when supported, or supply the packet to a fresh session under the existing independence checks (§5.1, §7).
+
 ### 3.2 Reviewer
 
 Receives the ticket, exact PR head, verification evidence, prior findings and a separate review worktree. It never receives private worker reasoning. Its final message ends with exactly one of:
@@ -68,6 +88,8 @@ VERDICT: NEEDS-DECISION
 ```
 
 Allow one terminal newline; match the whole last line. Duplicate/conflicting verdict lines, malformed findings, an unknown enum or unsuccessful harness exit produce a failed review run, never approval. An optional fenced `findings` JSON block contains bounded entries `{file, line, severity, summary}`; repository-relative paths only. Store the SHA and reviewer session with every verdict. A changed head invalidates it.
+
+Before inspection and again before recording a verdict, the reviewer verifies its actual worktree `HEAD` equals the requested reviewed SHA and that the tree is clean. Store that comparison with the verdict; a successful fetch alone proves neither fact (§4.4).
 
 `REJECT` enters `queued` for remediation while `pipeline.*.max_rounds` permits another round, otherwise `round_exhausted`. `NEEDS-DECISION` enters `needs_decision`; invalid output enters `failed` with a diagnostic. The cap and accounting defaults are decided in §12.
 
@@ -90,6 +112,8 @@ Resume with a note does not itself approve or waive anything. Reviewers and clos
 ### 3.4 Job mode
 
 One configured harness runs a bounded task without the build/review loop. It records authorization policy/evidence, effects, verification and a named workflow outcome. `job.finished` is a run event: standalone success enters `job_succeeded`; a closer returns to `approving`, not ticket completion. Authorization uses the §12 option-2 policy: a config capability allowance plus a ticket-scoped note; no per-run token. This choice does not weaken closer eligibility or the authorization required for service changes. A closer is one job kind; service runbooks are another. Success of a harness process alone is not success of the runbook. Post-merge jobs are disabled unless both pipeline policy and recorded authorization permit them.
+
+One-off kinds also include digests and authorized PR follow-up. A PR built outside the runner enters through `review`, with live ticket identities, the exact head and fresh required gate receipts; rejection uses the normal bounded worker remediation and fresh review. A job may request that continuation, but cannot replace its review/merge guards with a successful job exit.
 
 ## 4. Interfaces
 
@@ -114,6 +138,8 @@ A per-run supervisor survives runner death, enforces wall/idle deadlines, stores
 
 Harness-specific parsing covers session IDs, final output and progress signals. Resume capability is explicit; fresh-start fallback uses ticket evidence. A Python plug-in can implement an API harness. Configuration examples express the adapter contract, not verified CLI flag compatibility.
 
+Classify explicit provider/budget failures (for example gateway `422 ExceededBudget` or rate-limit `429`) as infrastructure diagnostics, separate from worker rejection, crash or timeout. Once child exit and effect safety are established, save the same-attempt continuation in `needs_decision` (§5.1). An authorized retry or configured-profile fallback (for example OMP to Codex) keeps the existing worktree and handoff; it consumes no remediation round, nudge or run-failure retry. Preserve any round already charged for a confirmed start; never refund it or count a resumed start twice. No automatic retry loop or silent harness substitution: resolution records the selected profile, revalidates configuration and identities, and retains ticket deadlines. Changed service state still requires the existing rollback path before a job can continue.
+
 ### 4.2 Tracker
 
 ```python
@@ -127,6 +153,8 @@ class Tracker(Protocol):
 
 `Ticket` includes creator/implementer identities, review state and decisions. `ApprovalRequest` includes ticket, SHA, review reference, decision reference and effect ID. `approve` checks eligibility, executes in `actor`'s isolated context and reads back the recorded reviewer/status. On restart, inspect existing approval before repeating. Capability/schema errors enter `failed`. Tracker logs include stable effect IDs for reconciliation. Do not run `td export` or edit its scheduled export file.
 
+Maintain a decision inbox keyed by tracker log reference and monotonic input revision. At each worker/reviewer dispatch boundary, reread the live ticket, validate decision authority and freeze the consumed revision in the input packet and gate/verdict receipts. A mid-round decision remains pending; it is not assumed to reach a running agent. Before approval/merge, compare the live decision revision with that evidence: a scope-changing decision invalidates affected gates/verdicts and requires a new boundary. Urgent decisions use pause → verified quiescence → resume with the new packet (§5.1); never inject unrecorded instructions into a live run.
+
 ### 4.3 Forge
 
 `Forge.find_pr(repo, branch, recorded_id)`, `head(pr)`, `mark_ready(pr)` and `merge(pr, expected_sha)` return typed results or explicit errors. Lookup uses recorded ID, then exact repository/head branch, then bounded search retries. A draft stays draft until independent approval and required checks permit readiness under automatic pipeline policy, or a recorded manual readiness decision permits it. An unresolved draft or failed required check enters `awaiting_merge`; record `pr.ready` after readiness and read it back before merging. Immediately before merge, reread the head and required checks; the merge API must enforce `expected_sha` atomically. A pre-call comparison alone is insufficient. Unsupported SHA enforcement enters `failed` without a merge call. Read back the merge receipt, including reviewed head and resulting merge SHA. Review and merge use only the expected PR; never pick a search result by title alone.
@@ -134,6 +162,8 @@ class Tracker(Protocol):
 ### 4.4 Workspace
 
 `Workspace.ensure(ticket, repo, base, effect_id)` creates/reuses a dedicated feature branch and worktree; `Workspace.review(ticket, sha)` creates a separate checkout pinned to that SHA. Verify repository identity, branch and cwd before launch. Never switch the main checkout's branch or launch there. Preserve dirty work; uncertain ownership enters `needs_decision`. Review worktrees forbid source edits through adapter policy; any modification invalidates review. Cleanup is explicit, never an automatic destructive recovery step.
+
+Fetch the exact commit into a named ref or by explicit SHA, then check out and compare actual `HEAD` with that SHA in the review worktree. Do not rely on another worktree's `FETCH_HEAD`; its value can be stale or worktree-specific. Repeat the comparison when accepting the verdict (§3.2).
 
 ### 4.5 Gates and optional judgment
 
@@ -144,6 +174,8 @@ class Gate(Protocol):
 ```
 
 `GateContext`: stage, ticket/attempt, repo/worktree, expected SHA, evidence references and sanitized progress packet. `GateResult`: pass/fail/error/advisory, bounded findings and verification receipts. A required deterministic gate error enters `failed`; missing check policy or required judgment availability enters `needs_decision`.
+
+For a multi-phase ticket, the authorized input packet names the current phase, its deliverables/checks, deferred phases and the completion boundary. Bind gate/verdict/acceptance receipts to that phase, input revision and SHA. Review only the agreed phase; a missing procedure is a decision request, not a code rejection. Passing an intermediate phase records phase acceptance without whole-ticket approval/closure or merge unless that boundary was explicitly authorized; use separately scoped phase tickets when td cannot represent the required partial acceptance. Subsequent phases need their own contract and review.
 
 - **Finish:** clean worktree, commit equals upstream head, expected open PR and complete handoff. Check discovery errors fail closed.
 - **Checks:** project-configured lint/tests for the changed scope, tied to that SHA. Record exact command, exit and bounded sanitized output. No applicable lint/test requires an explicit policy decision, never an invented pass. The shared `pipeline.*.finish_nudges` budget covers repairable finish/check failures; exhaustion enters `failed` before review. A recorded no-check exemption is scoped to the head and gate, then gating resumes.
@@ -215,6 +247,8 @@ State includes lane/repository, lease, identities, run handles/deadlines, round 
   remain unchanged; these are effect-driver requirements, not new phases or
   events.
 - Accounting: a round is consumed on the first **confirmed worker start** for that attempt, even if it later crashes/times out. Launch retries before that start, reviewer/closer runs and nudges consume no additional round. Reconciled starts count once. The `pipeline.*.round_accounting = "confirmed_worker_start"` default selects this accounting rule. Run-failure retries are bounded per run stage/attempt; a worker retry after a confirmed start opens a new round. Counters and existing run deadlines never reset on recovery or hold/resume; a new bounded run gets its own deadlines, and the ticket deadline spans all runs; §12 records these rules as decided.
+- **New-input continuation:** `paused` → `queued` on authorized `resume.requested`, then admission → saved active phase, attaches the versioned findings/decision packet to the same attempt. For `needs_decision`, first record an authorized blocker resolution, then use its existing resume row. Resume preserves an eligible session when the harness supports it and keeps budgets/worktree evidence; an incompatible profile uses a fresh eligible session with the handoff. Active runs must quiesce through pause before consuming changed input. Changed scope/head invalidates affected gates/verdicts and resumes at gating/review instead of reusing acceptance. Input revision is continuation evidence, not a new state; adapter delivery is outside the abstract Lean model.
+- **Infrastructure continuation:** the final `run.failed` row handles a confirmed provider/budget failure only after child exit, unchanged service state and reconciled effects. Save the active phase for same-attempt resume without incrementing remediation/retry counters. Uncertain child/effect safety uses `effect.uncertain`; changed service state uses the existing rollback rows. Resolution/fallback is an authorized non-waiver blocker decision, followed by the existing hold-resume and saved-phase admission rows. No new state or event is required.
 
 | From-state | Event | Guard | To-state | Effect |
 |---|---|---|---|---|
@@ -244,9 +278,9 @@ State includes lane/repository, lease, identities, run handles/deadlines, round 
 | `W` | effect.uncertain | Process/approval/job result cannot be reconciled (merge uncertainty uses merge.blocked) | `needs_decision` | Preserve effect ID and saved continuation; prohibit repeat |
 | `building` | run.finished | Exit 0; sanitized result available | `gating` | Record handoff; run gates at head |
 | `building` | run.finished | Exit 0; required result/handoff unavailable | `failed` | Record result-contract failure |
-| `building`, `reviewing`, `closer_running` | run.failed | Crash/nonzero/idle/wall deadline; confirmed safe retry; budget remains; if worker, another round available | Same from-state | Cancel/reap; increment retry; worker opens new attempt; closer retry requires fresh authorization preflight before a fresh run |
-| `building` | run.failed | Safe retry available but no worker round capacity | `round_exhausted` | Cancel/reap; record exhausted cap |
-| `building`, `reviewing`, `closer_running` | run.failed | Retry disabled/exhausted or known unsafe to repeat | `failed` | Cancel/reap; record timeout/stall/crash reason |
+| `building`, `reviewing`, `closer_running` | run.failed | Not a provider/budget failure; crash/nonzero/idle/wall deadline; confirmed safe retry; budget remains; if worker, another round available | Same from-state | Cancel/reap; increment retry; worker opens new attempt; closer retry requires fresh authorization preflight before a fresh run |
+| `building` | run.failed | Not a provider/budget failure; safe retry available but no worker round capacity | `round_exhausted` | Cancel/reap; record exhausted cap |
+| `building`, `reviewing`, `closer_running` | run.failed | Not a provider/budget failure; retry disabled/exhausted or known unsafe to repeat | `failed` | Cancel/reap; record timeout/stall/crash reason |
 | `gating` | gate.passed | More configured gates remain | `gating` | Save SHA-bound receipt; request next gate |
 | `gating` | gate.passed | All required gates passed/exempted at current head | `reviewing` | Pin head; request independent reviewer |
 | `gating` | gate.failed | Repairable finish/check failure; nudge budget remains | `building` | Increment shared nudge counter; resume/fresh worker, same round |
@@ -289,11 +323,11 @@ State includes lane/repository, lease, identities, run handles/deadlines, round 
 | `finished_awaiting_human` | resume.requested | Recorded manual merge authorization; same accepted head; deadline not expired | `queued` | Continuation = merge; revalidate all merge guards |
 | `finished_awaiting_human`, `awaiting_merge` | resume.requested | Accepted head stale | `needs_decision` | Invalidate acceptance; require new gated review |
 | `finished_awaiting_human`, `awaiting_merge` | resume.requested | Head current but authority/reconciliation/deadline guard false | Same from-state | Reject request; no effect |
-| `H` | resume.requested | Recorded decision resolves blocker; saved continuation valid; no live/unknown child or unresolved effect; deadline not expired | `queued` | Schedule saved continuation under caps; preserve budgets |
+| `H` | resume.requested | Recorded decision resolves blocker; saved continuation valid; no live/unknown child or unresolved effect; deadline not expired | `queued` | Schedule saved continuation with versioned new input under caps; preserve budgets and eligible session identity |
 | `H` | resume.requested | Successful-resume guard false | Same from-state | Reject request; record diagnostic; no effects |
 | `paused` | decision.recorded | Authorized non-waiver blocker resolution for saved needs_decision hold | `paused` | Store resolution with underlying blocker; no unpause, approval or merge |
 | `paused` | resume.requested | Authorized pause resume; saved origin = queued; child/effects safe; queue continuation valid; deadline not expired | `queued` | Restore original queue continuation; admission still enforces dependencies/caps/evidence |
-| `paused` | resume.requested | Authorized pause resume; saved origin in A; child/effects safe; continuation evidence valid; deadline not expired | `queued` | Set continuation = saved_phase and return_state = pause_return_state; admission revalidates evidence under caps; any job/closer launch requires fresh authorization preflight |
+| `paused` | resume.requested | Authorized pause resume; saved origin in A; child/effects safe; continuation evidence valid; deadline not expired | `queued` | Set continuation = saved_phase and return_state = pause_return_state; attach versioned new input; admission revalidates evidence under caps; any job/closer launch requires fresh authorization preflight |
 | `paused` | resume.requested | Authorized pause resume; saved origin in P; child/effects safe; acceptance/merge holds retain same pinned head; deadline not expired | Saved pause_return_state | Restore original hold and blocker/decisions; no slot, approval, merge or blocker bypass |
 | `paused` | resume.requested | Authorized pause resume; saved acceptance/merge hold has stale head; child/effects safe; deadline not expired | `needs_decision` | Invalidate verdict/acceptance; preserve diagnostic; require gated review of new head |
 | `paused` | resume.requested | None of the preceding pause-resume guards holds | `paused` | Reject request; retain saved continuations and budgets; no effects |
@@ -303,8 +337,8 @@ State includes lane/repository, lease, identities, run handles/deadlines, round 
 | `job_running` | job.finished | Exit 0; authorized service runbook | `job_verifying` | Reconcile step receipts; execute only missing authorized steps; service-user probe |
 | `job_running` | job.finished | Exit 0 but non-service success evidence missing | `job_failed` | Record evidence failure |
 | `J` | job.failed | Known failure; no changed service state | `job_failed` | Cancel/reap; record diagnostic |
-| `job_running` | run.failed | Confirmed no effects; safe retry budget remains | `job_running` | Cancel/reap; increment run retry; validate fresh run-bound authorization against `profile.<name>.allow_jobs`; fresh bounded job only on success |
-| `job_running` | run.failed | No changed service state; safe retry guard false | `job_failed` | Cancel/reap; record timeout/stall/crash |
+| `job_running` | run.failed | Not a provider/budget failure; confirmed no effects; safe retry budget remains | `job_running` | Cancel/reap; increment run retry; validate fresh run-bound authorization against `profile.<name>.allow_jobs`; fresh bounded job only on success |
+| `job_running` | run.failed | Not a provider/budget failure; no changed service state; safe retry guard false | `job_failed` | Cancel/reap; record timeout/stall/crash |
 | `J` | job.failed / run.failed | Service state changed; backup receipt available | `job_rolling_back` | Cancel/reap; restore backup; reload; re-verify |
 | `J` | job.failed / run.failed | Service state changed; backup unavailable | `job_rollback_failed` | Cancel/reap; record recovery failure; alert |
 | `job_verifying` | run.failed | No changed service state | `job_failed` | Record timeout/crash; cancel/reap |
@@ -347,6 +381,7 @@ State includes lane/repository, lease, identities, run handles/deadlines, round 
 | `scheduler_stopping` | scheduler.tick | No active workflows/children; receipts durable | `scheduler_stopped` | Save runner.finished; release ownership |
 | `scheduler_recovering`, `scheduler_watching`, `scheduler_stopping` | storage.failed | Journal cannot be safely written | `scheduler_failed` | Stop dispatch; supervisors retain child deadlines; this failure may exist only in the process result |
 | `W` | storage.failed | One-shot owner; journal cannot be safely written | `failed` | Report nondurable failure/exit 1; no new effect; recovery retains last durable state and supervised deadlines |
+| `R` | run.failed | Confirmed provider/budget failure; no changed/unknown service state; child absent/exited; effects reconciled | `needs_decision` | Save same-attempt continuation and infrastructure diagnostic; require fresh blocker resolution; preserve rounds/nudges/retries; permit only authorized provider retry/fallback after resolution |
 
 Initial states are `queued` (new workflow, validated continuation) and `scheduler_recovering` (new scheduler owner). There is no transition out of a terminal outcome into active work. Duplicate queue requests normalize to `event.duplicate`; invalid commands/decisions to their table events; allowlisted lifecycle observations to `observation.recorded`. A known dead child with a result receipt replays that result event; an unknown process/effect uses `effect.uncertain`. Slash-separated events/values and saved-target destinations expand into separate guarded rows; “Same from-state” is a self-transition, not an extra state.
 
@@ -362,6 +397,8 @@ Events contain evidence references and reason codes, not raw prompts/output or s
 
 Record duration, rounds, gate failures, review findings, outcome and optional token/cost usage per attempt/profile. Unknown cost is “unavailable,” not zero. Results and the future UI consume journal-derived records. A ticket owns attempts; attempts own disposable sessions and verification/review evidence. A worker note carries assumptions and next steps without becoming a second database.
 
+Where a gateway supports request metadata, label each request with the opaque runner run ID; retain sanitized request IDs and meter receipts for correlation. Aggregate usage/cost by run and ticket across worker, reviewer, nudges and fallback segments, deduplicating receipts. Report input/output tokens and repeated context volume when available, so repeated large contexts are visible. Show configured external budget, attributed spend and remaining budget only when the meter provides them; partial/missing attribution stays explicitly incomplete. These are observational aggregates, not initial runner spend caps (§12.1).
+
 ## 6. Scheduler and monitor
 
 The **queue scheduler is persistent**: it watches the durable queue, admits work as slots free and waits when empty. Tickets added later need no restart. Individual worker/reviewer/job processes and one-shot workflow invocations start for assigned work and exit at their outcome; none is a per-run daemon. This supersedes the earlier drain-to-exit scheduler decision without changing per-run lifetime. Service/boot/restart policy is decided in §12; installing the service is separate work.
@@ -371,6 +408,8 @@ The queue stores ticket, repository, pipeline, lane and validated overrides. Rea
 Global and per-lane caps apply; `corylus` has cap **1**. Workers, reviewers and internal closers run sequentially in that ticket's slot; a closer never queues behind itself. Terminal outcomes and holds release slots only after child exit/receipts and necessary rollback. Resume reacquires a slot. Use eligible FIFO in lanes and round-robin across lanes. Dependency holds remain visible; other eligible work continues.
 
 Each bounded tick checks identity, launch/wall/idle deadlines, persisted ticket deadlines and controls. Retry only a reconciled safe run under the explicit budgets in §8.2; uncertainty enters `needs_decision`. Pause quiesces active work, saves its origin independently of underlying continuations and prevents admission; stop cancels it. Authorized pause resume restores queued work, queues active continuations, or restores the original hold. It does not resolve a blocker or grant acceptance/merge authority. Service effects must be restored before either control completes. Notifications use durable cursors and bounded delivery retries; failures are visible but do not stop admission.
+
+Use that one watcher for every registered run kind: worker, reviewer, closer, digest and service/PR follow-up job. Liveness follows the persisted handle, progress and expected workflow outcome, not a hardcoded kind or expected merge event. Per-run supervisors enforce deadlines but do not become additional watchers or schedulers.
 
 Explicit scheduler shutdown stops admission, monitors admitted workflows to terminal/hold, records `runner.finished` and exits. Empty or dependency-blocked queues do **not** shut it down. Scheduler crash stops new effects; surviving per-run supervisors keep deadlines and receipts. Every restart recovers before admission (§5.1). Manual completion expects no merge event and is never reported as a dead run.
 
@@ -391,6 +430,8 @@ corylus-run results [--by profile|pipeline|lane]
 ```
 
 `scheduler` recovers and watches until explicit shutdown or fatal owner failure. `run`, `review`, `resume` and `job` recover/drive one workflow, or submit to the active scheduler and wait, then exit at a terminal/hold outcome. `review` requires existing work with valid gates at the pinned head. `resume` queues a validated saved continuation under the tables' guards. Queue/control commands persist requests and return after acknowledgment; `queue add` alone starts no executor. Status/results need no active scheduler.
+
+`resume --note-file` accepts the versioned findings/decision packet described in §3.1; the runner validates authority separately and consumes it at the next dispatch boundary. Operator prompts, notes and decisions use files or adapter-supported stdin; generated commands never require shell command substitution. External-PR review entry refreshes the live head and gates before admission, with normal bounded fix/rereview on rejection (§3.4).
 
 | Exit | Exact state mapping for workflow/scheduler commands |
 |---|---|
@@ -534,6 +575,8 @@ harness.
 
 Public: engine, interfaces, generic templates, synthetic examples and stub tests. Private: repository bindings, workspace locations, real models/harness flags, rules, service runbooks and provider configuration. Reference credentials through the existing private harness/provider mechanism; do not copy them into runner config or serialize environment values. Restrict state/artifact permissions to the runner user. Never publish installation hosts, addresses, paths or credential locations from private inputs.
 
+A private ticket guide may explicitly authorize reading a named credential file for a specified operation. Validate the allowance's author, ticket, exact path and purpose; broader directory access, refresh or discovery is not implied. Pass only that scoped allowance to the selected harness, load the file into an in-memory variable, and keep its value out of prompts, journal, tracker, output and commits. Persist only an opaque allowance reference in public evidence. If unavailable, report `unavailable`; no alternate credential search. The allowance grants neither job effects nor unrelated authentication access.
+
 ## 9. Testing and release
 
 Use a scriptable fake CLI and temporary Git/td projects, plus fake forge, clock, judgment and notification services. No production credentials or live service changes in tests. Required scenarios:
@@ -550,6 +593,8 @@ Use a scriptable fake CLI and temporary Git/td projects, plus fake forge, clock,
 - Authorized service job: backup, reload, service-user verification; job failure, successful/failed rollback, stop/pause/deadline during changed service state; unknown effects never repeat.
 - Every §5.1 expanded transition and exit mapping; launch/nudge/run-retry exhaustion, timed-out/crashed round accounting, human acceptance decline, blocked draft and policy holds.
 - Identity refusal in every `I` phase: approval after human acceptance, prelaunch/active worker and job, verified-child cancellation, unknown-child lease retention and changed-service restoration. Pause/resume from queued work, every `A` phase and every `P` hold; record a paused blocker resolution, restore acceptance/manual-merge/blocked-merge holds without granting authority, and reject stale or unauthorized resumes.
+- Provider budget/rate-limit failure preserves same-attempt counters/worktree on authorized fallback; unknown effects hold and changed service state restores first. New-input resume retains the eligible session, consumes the versioned packet and invalidates stale scope evidence; mid-round decisions remain pending until a boundary.
+- Actual review-worktree HEAD mismatch despite a successful fetch; external-agent PR fix/rereview; all registered job kinds monitored by one watcher; exact-path credential allowance/refusal with synthetic files; deduplicated run-labeled usage with partial meters; intermediate phase acceptance without whole-ticket completion.
 
 Run targeted Python unit tests and Ruff; end-to-end fakes run in CI. Install from a reviewed known commit/tag, preserving executable permissions. No edits to a running release. Scheduler/recovery probes must show start events, working monitor/notification delivery, empty-queue survival and admission after later enqueue. Kill/restart the scheduler during a stub run and verify supervised deadlines and reconciliation before admission; verify one-shot terminal exits and graceful scheduler shutdown. Installation policy follows the §12 scheduler defaults; service installation is separate work.
 

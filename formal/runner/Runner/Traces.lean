@@ -485,6 +485,112 @@ example : (run auto (initial auto) (repeatedPauseResumes 2)).rounds = 1 := by de
 example : (run auto (initial auto) (repeatedPauseResumes 2)).workerLaunches = 3 := by decide
 #eval showTrace "same_round_three_worker_launches" auto (repeatedPauseResumes 2)
 
+-- §5.1 R130/R120/R072/R010/R014: a provider/budget blocker needs explicit
+-- resolution before a same-attempt continuation. Provider policy and actual
+-- harness session/input handling remain adapter facts, not modeled effects.
+def infrastructureFailure : Event :=
+  { kind := .runFailed, facts := { infrastructureFailure := true } }
+def infrastructureHold : List Event := worker ++ [infrastructureFailure]
+example : phases auto infrastructureHold =
+    [.queued, .building, .building, .needsDecision] := by decide
+example : (run auto (initial auto) infrastructureHold).continuation = .savedPhase := by decide
+example : (run auto (initial auto) infrastructureHold).returnState = .building := by decide
+example : (run auto (initial auto) infrastructureHold).child = .absent := by decide
+example : (run auto (initial auto) infrastructureHold).rounds = 1 := by decide
+example : (run auto (initial auto) infrastructureHold).nudges = 0 := by decide
+example : (run auto (initial auto) infrastructureHold).retries = 0 := by decide
+#eval showTrace "infrastructure_failure_same_attempt_hold" auto infrastructureHold
+
+def infrastructureResolved : List Event := infrastructureHold ++
+  [event .decisionRecorded, event .resumeRequested, event .admissionChecked, event .runStarted]
+example : phases auto infrastructureResolved = [.queued, .building, .building,
+    .needsDecision, .needsDecision, .queued, .building, .building] := by decide
+example : (run auto (initial auto) infrastructureResolved).rounds = 1 := by decide
+example : (run auto (initial auto) infrastructureResolved).nudges = 0 := by decide
+example : (run auto (initial auto) infrastructureResolved).retries = 0 := by decide
+example : (run auto (initial auto) infrastructureResolved).launchRetries = 0 := by decide
+example : (run auto (initial auto) infrastructureResolved).workerLaunches = 2 := by decide
+example : outcome { auto with maxRounds := 1, runRetries := 0 } infrastructureResolved =
+    .building := by decide
+example : outcome { auto with maxRounds := 2, runRetries := 0 } infrastructureResolved =
+    .building := by decide
+example : outcome auto (infrastructureHold ++ [event .resumeRequested]) =
+    .needsDecision := by decide
+#eval showTrace "infrastructure_failure_resolved_same_attempt_resume" auto infrastructureResolved
+#eval showTrace "infrastructure_failure_resume_before_resolution_refused" auto
+  (infrastructureHold ++ [event .resumeRequested])
+def infrastructureRepeatedUnresolved : List Event := infrastructureResolved ++
+  [infrastructureFailure, event .resumeRequested]
+example : outcome auto infrastructureRepeatedUnresolved = .needsDecision := by decide
+example : (run auto (initial auto) infrastructureRepeatedUnresolved).blockerResolved =
+    false := by decide
+example : (run auto (initial auto) infrastructureRepeatedUnresolved).rounds = 1 := by decide
+example : (run auto (initial auto) infrastructureRepeatedUnresolved).retries = 0 := by decide
+#eval showTrace "infrastructure_failure_repeated_blocker_needs_new_resolution" auto
+  infrastructureRepeatedUnresolved
+
+-- Even safeRetry cannot convert uncertain infrastructure evidence to a work retry.
+def unsafeInfrastructureFailure : Event :=
+  { kind := .runFailed, facts := {
+      infrastructureFailure := true, safeRetry := true, childExited := false } }
+def infrastructureUnknownChild : List Event := worker ++
+  [observedChild .unknown, unsafeInfrastructureFailure]
+example : run auto (initial auto) infrastructureUnknownChild =
+    run auto (initial auto) (worker ++ [observedChild .unknown]) := by decide
+example : (run auto (initial auto) infrastructureUnknownChild).leased = true := by decide
+#eval showTrace "infrastructure_failure_unknown_child_refused" auto infrastructureUnknownChild
+example : run auto (initial auto) (worker ++ [unsafeInfrastructureFailure]) =
+    run auto (initial auto) worker := by decide
+#eval showTrace "infrastructure_failure_live_child_unreconciled_refused" auto
+  (worker ++ [unsafeInfrastructureFailure])
+example : run auto (initial auto) (worker ++ [unknownService, infrastructureFailure]) =
+    run auto (initial auto) (worker ++ [unknownService]) := by decide
+#eval showTrace "infrastructure_failure_unknown_service_refused" auto
+  (worker ++ [unknownService, infrastructureFailure])
+
+/-- Focused guard assertion for an unsafe abstract running state. Normal
+reachable traces do not introduce unresolved effects without entering a hold. -/
+example (c : Config) (s : State) (hp : s.phase = .building)
+    (he : s.effectUnresolved = true) :
+    step c s unsafeInfrastructureFailure = s := by
+  simp [step, rowStep, Id.run, pure, unsafeInfrastructureFailure, hp, he,
+    running, buildReviewCloser]
+
+def infrastructureJobResume : List Event := jobStart ++ [infrastructureFailure,
+  event .decisionRecorded, event .resumeRequested, event .admissionChecked, event .runStarted]
+example : outcome job infrastructureJobResume = .jobRunning := by decide
+example : (run job (initial job) infrastructureJobResume).retries = 0 := by decide
+example : (run job (initial job) infrastructureJobResume).mergeRequests = 0 := by decide
+#eval showTrace "infrastructure_failure_job_same_attempt_resume" job infrastructureJobResume
+def infrastructureVerificationFailure : List Event := jobStart ++
+  [{ kind := .jobFinished, facts := { serviceRunbook := true } }, infrastructureFailure]
+example : outcome job infrastructureVerificationFailure = .jobFailed := by decide
+#eval showTrace "infrastructure_failure_verification_without_changes_job_failed" job
+  infrastructureVerificationFailure
+def infrastructureServiceRollback : List Event := jobStart ++
+  [changedService true, infrastructureFailure, event .rollbackVerified]
+example : outcome job infrastructureServiceRollback = .jobRolledBack := by decide
+#eval showTrace "infrastructure_failure_changed_service_restored" job infrastructureServiceRollback
+example : outcome job (jobStart ++ [changedService false, infrastructureFailure]) =
+    .jobRollbackFailed := by decide
+#eval showTrace "infrastructure_failure_changed_service_backup_unavailable" job
+  (jobStart ++ [changedService false, infrastructureFailure])
+
+-- §5.1 R076: abstract new-input control uses the existing pause/resume path.
+-- The reviewer actor remains identical; input version/delivery and harness
+-- resumption capability are not represented and require adapter verification.
+def newInputPauseResume : List Event := gated ++ [event .runStarted,
+  event .pauseRequested, event .cancelVerified, event .resumeRequested,
+  event .admissionChecked, event .runStarted]
+example : outcome auto newInputPauseResume = .reviewing := by decide
+example : (run auto (initial auto) newInputPauseResume).actorSession =
+    (run auto (initial auto) (gated ++ [event .runStarted])).actorSession := by decide
+example : (run auto (initial auto) newInputPauseResume).actorSession = auto.reviewerSession := by decide
+example : (run auto (initial auto) newInputPauseResume).rounds = 1 := by decide
+example : (run auto (initial auto) newInputPauseResume).nudges = 0 := by decide
+example : (run auto (initial auto) newInputPauseResume).retries = 0 := by decide
+#eval showTrace "new_input_pause_resume_same_reviewer_identity_abstract" auto newInputPauseResume
+
 private theorem run_append (c : Config) (s : State) (xs ys : List Event) :
     run c s (xs ++ ys) = run c (run c s xs) ys := by
   simp [run, List.foldl_append]
