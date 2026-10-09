@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Runner board · fixture preview</title>
+  <style>
+    @font-face { font-family: 'Atkinson Hyperlegible Next'; font-weight: 400 700;
+      src: url('/static/fonts/ahn-upright-latin.woff2') format('woff2'); }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #F5F0E8; color: #2B2924;
+      font-family: 'Atkinson Hyperlegible Next', sans-serif; }
+    .fixture-header { display: flex; gap: 16px; align-items: center;
+      padding: 18px 20px; border-bottom: 1px solid #d8d0c2; }
+    .fixture-header h1 { margin: 0; font-weight: 700; letter-spacing: -.03em; }
+    .fixture-header p { margin: 3px 0 0; color: #766f62; font-size: 13px; }
+    .fixture-header button { margin-left: auto; padding: 8px 12px;
+      background: #F5F0E8; border: 1px solid #d8d0c2; border-radius: 4px;
+      color: #2B2924; font: inherit; }
+  </style>
+  <link rel="stylesheet" href="/static/runner_board.css">
+  <script defer src="/static/runner_board_model.js"></script>
+  <script defer src="/static/runner_board.js"></script>
+  <script defer src="/fixture.js"></script>
+</head>
+<body>
+  <header class="fixture-header">
+    <img src="/static/assets/logo-mark-black.svg" alt="Corylus" width="36" height="36">
+    <div><h1>Corylus</h1><p>Fixture preview · viewer integration pending</p></div>
+    <button id="fixture-refresh" type="button">Refresh fixture</button>
+  </header>
+  <main id="runner-board-pane"></main>
+  <p id="fixture-ticket" hidden></p>
+</body>
+</html>
