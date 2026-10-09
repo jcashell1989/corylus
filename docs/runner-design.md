@@ -200,6 +200,20 @@ State includes lane/repository, lease, identities, run handles/deadlines, round 
 - `I` = `building`, `reviewing`, `approving`, `job_authorizing`, `job_running`, `job_verifying`, `closer_running`: all phases that validate harness/tracker session identity. Process identity for cancellation is checked separately; a refused tracker session does not authorize killing an unknown process.
 - `A` = `building`, `gating`, `reviewing`, `approving`, `merging`, `job_authorizing`, `job_running`, `job_verifying`, `closer_running`; `P` = `awaiting_acceptance`, `finished_awaiting_human`, `needs_decision`, `dependency_blocked`, `awaiting_merge`.
 - `S` is the finite set of all states in the state table. `return_state` is a saved active phase from `A`; `pause_return_state` is separately saved from `queued`, `building`, `gating`, `reviewing`, `approving`, `merging`, `job_authorizing`, `job_running`, `job_verifying`, `closer_running`, `awaiting_acceptance`, `finished_awaiting_human`, `needs_decision`, `dependency_blocked`, `awaiting_merge`. Neither saves a terminal state, `paused`, `quiescing` or `job_rolling_back`. A pause during cancellation preserves the pre-cancellation origin or pending decision hold; a pause requiring service restoration saves `job_authorizing` and invalidates service success receipts. Existing queue continuation, blocker continuation, decisions and merge authority are retained separately. Resuming `building` requests a same-attempt continuation, not an automatic new round; a new round requires the run-failure/remediation rows. `launch_pending`, run kind, effect IDs and counters are durable data, not additional phases. Entry into a run state requests launch unless a live reconciled run or completed approval receipt already exists.
+- **Job/closer dispatch preflight:** before every launch effect, reread and
+  validate the §12 note against `profile.<name>.allow_jobs`, the current run ID
+  and launch effect ID. This applies to initial jobs, closer admission,
+  saved-phase and pause/hold resumes, launch retries, run-failure retries and
+  recovery of an unexecuted launch intent. Missing, expired, consumed by another
+  launch or mismatched authorization prevents dispatch: the pending job
+  authorization result cannot be reconciled, so emit `effect.uncertain` and use
+  its existing `needs_decision` row; retain the continuation and dispatch no
+  child or job effect. A valid waiver alone is insufficient. These checks are
+  part of continuation evidence and chosen job policy; retry budgets never grant
+  authority. Reconciliation adopts a verified live child or completed receipt
+  without relaunching or requesting a new note. The abstract formal guards
+  remain unchanged; these are effect-driver requirements, not new phases or
+  events.
 - Accounting: a round is consumed on the first **confirmed worker start** for that attempt, even if it later crashes/times out. Launch retries before that start, reviewer/closer runs and nudges consume no additional round. Reconciled starts count once. The `pipeline.*.round_accounting = "confirmed_worker_start"` default selects this accounting rule. Run-failure retries are bounded per run stage/attempt; a worker retry after a confirmed start opens a new round. Counters and existing run deadlines never reset on recovery or hold/resume; a new bounded run gets its own deadlines, and the ticket deadline spans all runs; §12 records these rules as decided.
 
 | From-state | Event | Guard | To-state | Effect |
@@ -211,9 +225,9 @@ State includes lane/repository, lease, identities, run handles/deadlines, round 
 | `queued` | admission.checked | Slot free; continuation = build; rounds at cap | `round_exhausted` | Record exhaustion; release slot |
 | `queued` | admission.checked | Slot free; continuation = review; valid work/head/gates | `reviewing` | Lease slot; pin review workspace; fresh reviewer |
 | `queued` | admission.checked | Slot free; continuation = merge; authorized exact head | `merging` | Lease slot; revalidate approval/head/checks |
-| `queued` | admission.checked | Slot free; continuation = closer; accepted scoped waiver; fresh run-bound `[job-authorization]` note valid | `closer_running` | Lease same-ticket slot; revalidate note against `allow_jobs`; launch independent closer job |
+| `queued` | admission.checked | Slot free; continuation = closer; accepted scoped waiver | `closer_running` | Lease same-ticket slot; validate fresh run-bound authorization against `profile.<name>.allow_jobs`; launch independent closer only on success |
 | `queued` | admission.checked | Slot free; continuation = job | `job_authorizing` | Lease slot; evaluate chosen job policy |
-| `queued` | admission.checked | Slot free; continuation = saved_phase; validated return_state and reconciled effects; fresh note validated when return_state launches a job or closer | Saved return_state | Lease slot; resume pending gates/action or same-attempt run; revalidate job note at launch |
+| `queued` | admission.checked | Slot free; continuation = saved_phase; validated return_state and reconciled effects | Saved return_state | Lease slot; resume pending gates/action or same-attempt run; job/closer dispatch requires fresh authorization preflight |
 | `queued` | admission.checked | Slot free; continuation evidence invalid | `needs_decision` | Record missing/stale evidence; no launch |
 | `building`, `reviewing` | workspace.failed | Known setup failure | `failed` | Record diagnostic; no launch |
 | `building`, `reviewing` | workspace.uncertain | Ownership/cwd/head cannot be established | `needs_decision` | Save continuation; no launch |
@@ -224,13 +238,13 @@ State includes lane/repository, lease, identities, run handles/deadlines, round 
 | `I` | identity.refused | Child identity/existence or service effect safety unknown | `needs_decision` | Save continuation/diagnostic; retain lease; prohibit new effects and cancellation of unknown processes |
 | `J` | identity.refused | Changed service state; child verified/absent; backup available | `job_rolling_back` | Save needs_decision target and job_authorizing continuation; invalidate success receipts; cancel/reap; trusted restore/reload/probe |
 | `J` | identity.refused | Changed service state; child verified/absent; backup unavailable | `job_rollback_failed` | Cancel/reap; record restoration failure; alert; retain lease until child exit |
-| `R` | run.launch_failed | Child confirmed absent; launch retry budget remains | Same from-state | Increment launch retries; fresh launch intent |
+| `R` | run.launch_failed | Child confirmed absent; launch retry budget remains | Same from-state | Increment launch retries; fresh launch intent; job/closer retry requires fresh authorization preflight |
 | `building`, `reviewing`, `closer_running` | run.launch_failed | Child absent; launch budget exhausted | `failed` | Record launch failure |
 | `job_running` | run.launch_failed | Child absent; launch budget exhausted | `job_failed` | Record launch failure |
 | `W` | effect.uncertain | Process/approval/job result cannot be reconciled (merge uncertainty uses merge.blocked) | `needs_decision` | Preserve effect ID and saved continuation; prohibit repeat |
 | `building` | run.finished | Exit 0; sanitized result available | `gating` | Record handoff; run gates at head |
 | `building` | run.finished | Exit 0; required result/handoff unavailable | `failed` | Record result-contract failure |
-| `building`, `reviewing`, `closer_running` | run.failed | Crash/nonzero/idle/wall deadline; confirmed safe retry; budget remains; if worker, another round available | Same from-state | Cancel/reap; increment retry; worker opens new attempt; fresh run |
+| `building`, `reviewing`, `closer_running` | run.failed | Crash/nonzero/idle/wall deadline; confirmed safe retry; budget remains; if worker, another round available | Same from-state | Cancel/reap; increment retry; worker opens new attempt; closer retry requires fresh authorization preflight before a fresh run |
 | `building` | run.failed | Safe retry available but no worker round capacity | `round_exhausted` | Cancel/reap; record exhausted cap |
 | `building`, `reviewing`, `closer_running` | run.failed | Retry disabled/exhausted or known unsafe to repeat | `failed` | Cancel/reap; record timeout/stall/crash reason |
 | `gating` | gate.passed | More configured gates remain | `gating` | Save SHA-bound receipt; request next gate |
@@ -279,17 +293,17 @@ State includes lane/repository, lease, identities, run handles/deadlines, round 
 | `H` | resume.requested | Successful-resume guard false | Same from-state | Reject request; record diagnostic; no effects |
 | `paused` | decision.recorded | Authorized non-waiver blocker resolution for saved needs_decision hold | `paused` | Store resolution with underlying blocker; no unpause, approval or merge |
 | `paused` | resume.requested | Authorized pause resume; saved origin = queued; child/effects safe; queue continuation valid; deadline not expired | `queued` | Restore original queue continuation; admission still enforces dependencies/caps/evidence |
-| `paused` | resume.requested | Authorized pause resume; saved origin in A; child/effects safe; continuation evidence valid; fresh note validated when return_state launches a job or closer; deadline not expired | `queued` | Set continuation = saved_phase and return_state = pause_return_state; admission revalidates evidence and any job note under caps |
+| `paused` | resume.requested | Authorized pause resume; saved origin in A; child/effects safe; continuation evidence valid; deadline not expired | `queued` | Set continuation = saved_phase and return_state = pause_return_state; admission revalidates evidence under caps; any job/closer launch requires fresh authorization preflight |
 | `paused` | resume.requested | Authorized pause resume; saved origin in P; child/effects safe; acceptance/merge holds retain same pinned head; deadline not expired | Saved pause_return_state | Restore original hold and blocker/decisions; no slot, approval, merge or blocker bypass |
 | `paused` | resume.requested | Authorized pause resume; saved acceptance/merge hold has stale head; child/effects safe; deadline not expired | `needs_decision` | Invalidate verdict/acceptance; preserve diagnostic; require gated review of new head |
 | `paused` | resume.requested | None of the preceding pause-resume guards holds | `paused` | Reject request; retain saved continuations and budgets; no effects |
-| `job_authorizing` | authorization.checked | Chosen job policy satisfied | `job_running` | Save evidence; request bounded job launch |
+| `job_authorizing` | authorization.checked | Chosen job policy satisfied | `job_running` | Validate and save fresh run-bound authorization; request bounded job launch only after dispatch preflight succeeds |
 | `job_authorizing` | authorization.checked | Policy undecided or required evidence absent | `needs_decision` | Save job continuation; no effects |
 | `job_running` | job.finished | Exit 0; non-service; required effect/verification receipts valid | `job_succeeded` | Save run and workflow outcome; release slot |
 | `job_running` | job.finished | Exit 0; authorized service runbook | `job_verifying` | Reconcile step receipts; execute only missing authorized steps; service-user probe |
 | `job_running` | job.finished | Exit 0 but non-service success evidence missing | `job_failed` | Record evidence failure |
 | `J` | job.failed | Known failure; no changed service state | `job_failed` | Cancel/reap; record diagnostic |
-| `job_running` | run.failed | Confirmed no effects; safe retry budget remains; fresh `[job-authorization]` note present | `job_running` | Cancel/reap; increment run retry; revalidate fresh note against `allow_jobs`; fresh bounded job |
+| `job_running` | run.failed | Confirmed no effects; safe retry budget remains | `job_running` | Cancel/reap; increment run retry; validate fresh run-bound authorization against `profile.<name>.allow_jobs`; fresh bounded job only on success |
 | `job_running` | run.failed | No changed service state; safe retry guard false | `job_failed` | Cancel/reap; record timeout/stall/crash |
 | `J` | job.failed / run.failed | Service state changed; backup receipt available | `job_rolling_back` | Cancel/reap; restore backup; reload; re-verify |
 | `J` | job.failed / run.failed | Service state changed; backup unavailable | `job_rollback_failed` | Cancel/reap; record recovery failure; alert |
@@ -500,7 +514,21 @@ required = false
 stages = ["suspected_stall", "pre_review"]
 ```
 
-`roles` restricts the two loop roles. Every profile carries an `allow_jobs` capability table; the shipped default disables it (`enabled = false`, empty `kinds`/`effects` allowlists). Enabling `allow_jobs.enabled = true` grants that profile's harness the capability to run jobs, bounded to the named job `kinds` (for example `closer` or a service runbook name) and `effects` allowlist; `config check` rejects unknown kinds/effects, a nonempty allowlist while `enabled = false`, and an enabled profile used in a worker/reviewer loop role. Launch authorization additionally requires the ticket-scoped `[job-authorization]` note (§12); an empty allowlist authorizes nothing even when enabled. Real harness argv/session formats need adapter conformance tests. Models in examples are placeholders. Installation policy may forbid a harness/billing combination; it never silently substitutes a different harness.
+`roles` restricts the two loop roles. `profile.<name>.allow_jobs` is a
+capability table with exactly three fields: `enabled` (Boolean), `kinds` (array
+of registered job-kind strings: `closer` or an installed runbook name), and
+`effects` (array of registered effect strings from those job/runbook contracts).
+The shipped default is `{ enabled = false, kinds = [], effects = [] }` for every
+profile. Both allowlists use exact names, with no wildcards or implicit
+all-effects grant. `config check` rejects unknown fields, wrong types, unknown
+kinds/effects and nonempty allowlists while disabled. A disabled capability or
+either empty allowlist authorizes nothing. For an enabled profile, the requested
+kind must be listed and every requested effect must be in `effects`; the §12
+note must also authorize that exact launch and its effects. Loop-role membership
+grants no job authority. Real harness argv/session formats need adapter
+conformance tests. Models in examples are placeholders. Installation policy may
+forbid a harness/billing combination; it never silently substitutes a different
+harness.
 
 ### 8.3 Public versus private
 
@@ -560,11 +588,14 @@ These are proposed slices, not created or started tickets. Names and files form 
 | 23. Optional judgment | `runner/judgment.py`: fixed packets behind Gate, disabled by default | Sanitization, bounded call, bad schema, unavailable, flag pauses, never grants approval | Cheap; 2, 12, 16 |
 | 24. Release/regression suite | `tests/runner/test_e2e.py`, `.github/workflows/runner.yml`; release notes in `docs/runner-release.md` | §9 matrix, targeted/unit CI and Ruff; installed executable/start/recovery/later-enqueue/shutdown probes; approved user-service restart/boot policy | Codex; 1–23 |
 
-Lean model/proofs in `td-e81ba4` follow this design review and feed step 14’s transition tests; they are not implemented here. The §12 decisions are recorded and their consuming slices can consume them. Step 24 has three files because CI and the release runbook accompany the integration suite; it implements no new runtime behavior. UI consumption is a later design/build slice, preserving existing workflows. Approval of this proposal is not approval to start all tickets unattended.
+Lean model/proofs in `td-e81ba4` follow this design review and feed step 14’s transition tests; they are not implemented here. The §12 defaults are decided and available to the implementation slices. Step 24 has three files because CI and the release runbook accompany the integration suite; it implements no new runtime behavior. UI consumption is a later design/build slice, preserving existing workflows. Approval of this proposal is not approval to start all tickets unattended.
 
 ## 12. Decisions
 
-**Decided by Julian, 2026-10-08** (recorded on `td-3830f9` and this ticket): every item below ships as the default shown, configurable through its §8.2 key, except the invariants listed under **Not configurable**. Job authorization uses option 2; see **Job authorization note** below.
+**Decided by Julian, 2026-10-08** (recorded on `td-3830f9` and this ticket):
+every item below ships as the default shown, configurable through its §8.2 key,
+except the invariants listed under **Not configurable**. Job authorization uses
+option 2; see **Job authorization note** below.
 
 | Decision | Config key / shipped default | Reason / alternative | Decided |
 |---|---|---|---|
@@ -580,24 +611,62 @@ Lean model/proofs in `td-e81ba4` follow this design review and feed step 14’s 
 | J. Start scheduler at boot? | `scheduler.start_at_boot` = **false** | No implicit linger or boot enablement; user-service persistence after logout needs an explicit account/session-lifetime choice. | Julian, 2026-10-08 |
 | K. Restart scheduler after crash? | `scheduler.restart` = **"on-failure"**, `scheduler.restart_delay_seconds` = **5** | Recover-before-admission permits unattended recovery; restart never resets child deadlines. Explicit clean shutdown stays stopped; the service manager must rate-limit crash loops. | Julian, 2026-10-08 |
 | Cancellation / restoration bounds | `limits.cancel_grace_seconds` = **15**, `limits.rollback_timeout_seconds` = **300** | Short grace before kill; a separate five-minute restoration budget remains active after a ticket deadline. Expired/failed rollback alerts. | Julian, 2026-10-08 |
-| Job authorization | `<profile>.allow_jobs` = **{ enabled = false, kinds = [], effects = [] }** plus a run-bound ticket-scoped `[job-authorization]` note (spec below) | Option 2: config grants bounded capabilities; the note approves the specific run with accountability and defined expiry. Default disables job capability. No per-run token. | Julian, 2026-10-08 |
+| Job authorization | `profile.<name>.allow_jobs` = **{ enabled = false, kinds = [], effects = [] }** plus a run-bound ticket-scoped `[job-authorization]` note (spec below) | Option 2: config grants bounded capabilities; the note approves the specific run with accountability and defined expiry. Default disables job capability. No per-run token. | Julian, 2026-10-08 |
 | Merge policy | `pipeline.<name>.merge` = **"automatic"** | Independent approval, exact reviewed SHA and atomic forge guard. Design pipelines may set `"manual"` with human acceptance. | Julian, 2026-10-08 |
 | UI warnings / optional judgment | Same-model warning; `gate.judgment.enabled` = **false** | Preserve chosen UI; show reason/next action with folded evidence. Advisory flags require inspection; unavailable optional judgment retains deterministic checks. | Julian, 2026-10-08 |
 
-**Not configurable.** These are invariants of §3 and §5, not settings; making them configurable would remove the guarantees the runner exists to provide:
+**Not configurable.** These are invariants of §3 and §5, not settings; making
+them configurable would remove the guarantees the runner exists to provide:
 
-- **Merge only the exact reviewed SHA** (§4.3): the forge call must atomically enforce `expected_sha`; a weaker merge could land unreviewed work.
-- **The reviewer is independent of the builder** (§3.3): it must differ from every worker harness session and from all ticket creator/implementer tracker sessions.
-- **Never approve own work** (§3.3): `td approve` runs in the reviewer's or an eligible independent closer's persisted tracker context; `--self-review` and name-only `--reviewed-by` are never substitutes.
-- **A changed head invalidates the verdict** (§3.2, §5.1): approval, acceptance and merge attach to one SHA; a stale head requires gated review, never a merge of the old verdict.
-- **Cancellation targets only verified process identities** (§5.1): uncertain effects enter `needs_decision`; no automatic repeat of an uncertain non-idempotent effect.
-- **No flag bypasses independence, gates or reconciliation** (§7).
+- **Merge only the exact reviewed SHA** (§3.3, §5.1): the forge call must
+  atomically enforce `expected_sha`; a weaker merge could land unreviewed work.
+- **The reviewer is independent of the builder** (§3.3): it must differ from
+  every worker harness session and from all ticket creator/implementer tracker
+  sessions.
+- **Never approve own work** (§3.3): `td approve` runs in the reviewer's or an
+  eligible independent closer's persisted tracker context; `--self-review` and
+  name-only `--reviewed-by` are never substitutes.
+- **A changed head invalidates the verdict** (§3.2, §5.1): approval, acceptance
+  and merge attach to one SHA; a stale head requires gated review, never a merge
+  of the old verdict.
+- **Cancellation targets only verified process identities** (§5.1): otherwise
+  the runner could terminate an unrelated process.
+- **Never repeat an uncertain effect without reconciliation** (§5.1): a
+  duplicate launch, approval or service change could apply an effect twice.
 
-**Job authorization note (option 2).** The capability lives in `<profile>.allow_jobs` (`enabled`, `kinds`, `effects` — see §8.2; default disabled, empty allowlists authorize nothing); a run-bound ticket-scoped note authorizes the specific launch:
+**Job authorization note (option 2).** The capability lives in
+`profile.<name>.allow_jobs` (`enabled`, `kinds`, `effects` — see §8.2; default
+disabled, empty allowlists authorize nothing); a run-bound ticket-scoped note
+authorizes the specific launch:
 
-- **Where it lives:** one `td log td-<ticket> "..."` line on the ticket itself, recorded by an authorized actor outside the job's own tracker session (Julian, or a delegated waiver recorded on the ticket). The authorization check rereads this line before **every** job or closer launch — at `job_authorizing`, at each run retry, and after every resume from a hold — not only the first launch; it is evidence, not a decision file.
-- **Required wording:** the note must contain, as `key=value` fields on one line, in this order: the literal tag `[job-authorization]`, `ticket=td-<id>`, `kind=closer|<runbook name>`, `profile=<profile name>`, `scope=<allowed effects/effects allowlist>`, `approved-by=<human authority>`, `date=YYYY-MM-DD`. A note missing any field, with an unknown kind/profile or scope beyond the profile's `allow_jobs` allowlist, fails authorization into `needs_decision`.
-- **Expiry:** the note authorizes exactly one job/closer launch (run-bound). It **expires on resume or retry**: resuming the workflow from any hold, or retrying a failed job (§5.1 run.failed retry row included), requires a fresh note before the new launch; the previous note is then evidence of past authority only. Closer eligibility and service-change authorization are unaffected and remain mandatory (§3.3, §3.4).
+- **Where it lives:** one `td log td-<ticket> "..."` line on the ticket itself,
+  recorded by Julian or an actor with explicit ticket-recorded delegated
+  authority (including an authorized orchestrator waiver), outside the job's own
+  tracker session. Validate the log's actor/session provenance; the
+  `approved-by` field alone grants no authority. The runner publishes the
+  pending run and launch effect IDs before requesting the note, then rereads it
+  before every job or closer dispatch (§5.1).
+- **Exact format:** the entire log message is `[job-authorization]
+  ticket=td-<id> run=<run-id> launch=<launch-effect-id> kind=<job-kind>
+  profile=<profile-name> scope=<effect1,effect2>
+  approved-by=<authorized-actor-id> date=YYYY-MM-DD`. Fields appear once, in
+  that order; values contain no whitespace. `kind` is `closer` or an installed
+  runbook name; `scope` is a nonempty comma-separated list of exact registered
+  effect names. Ticket, run, launch, kind and profile must match the pending
+  request; requested effects must be included in the note's scope, and every
+  scope effect must be allowed by the profile. Invalid syntax, provenance,
+  binding or capabilities prevents dispatch and enters `needs_decision` through
+  the §5.1 authorization-preflight failure path.
+- **Expiry:** each note authorizes exactly one launch effect ID. Persist its
+  reference with that launch intent; reconcile an uncertain dispatch instead of
+  reusing the note for another launch. It **expires on resume or retry**,
+  including launch retries, run-failure retries and closer retries. Invalidate
+  prior authorization before preparing the resumed/retried launch, assign fresh
+  run/launch IDs and require a new log entry targeting them. Recovery of an
+  unchanged pending intent may retain its still-valid note; adopting an already
+  live child or replaying a receipt performs no launch. Prior notes remain
+  evidence of past authority only. Closer eligibility and service-change
+  authorization remain mandatory (§3.3, §3.4).
 
 ### 12.1 Future work
 

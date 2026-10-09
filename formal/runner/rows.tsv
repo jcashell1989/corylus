@@ -6,9 +6,9 @@ R004	`queued`	admission.checked	Slot free; continuation = build; rounds below ca
 R005	`queued`	admission.checked	Slot free; continuation = build; rounds at cap	`round_exhausted`	queued	admission.checked	round_exhausted
 R006	`queued`	admission.checked	Slot free; continuation = review; valid work/head/gates	`reviewing`	queued	admission.checked	reviewing
 R007	`queued`	admission.checked	Slot free; continuation = merge; authorized exact head	`merging`	queued	admission.checked	merging
-R008	`queued`	admission.checked	Slot free; continuation = closer; accepted scoped waiver; fresh run-bound `[job-authorization]` note valid	`closer_running`	queued	admission.checked	closer_running
+R008	`queued`	admission.checked	Slot free; continuation = closer; accepted scoped waiver	`closer_running`	queued	admission.checked	closer_running
 R009	`queued`	admission.checked	Slot free; continuation = job	`job_authorizing`	queued	admission.checked	job_authorizing
-R010	`queued`	admission.checked	Slot free; continuation = saved_phase; validated return_state and reconciled effects; fresh note validated when return_state launches a job or closer	Saved return_state	queued	admission.checked	building,gating,reviewing,approving,merging,job_authorizing,job_running,job_verifying,closer_running
+R010	`queued`	admission.checked	Slot free; continuation = saved_phase; validated return_state and reconciled effects	Saved return_state	queued	admission.checked	building,gating,reviewing,approving,merging,job_authorizing,job_running,job_verifying,closer_running
 R011	`queued`	admission.checked	Slot free; continuation evidence invalid	`needs_decision`	queued	admission.checked	needs_decision
 R012	`building`, `reviewing`	workspace.failed	Known setup failure	`failed`	building,reviewing	workspace.failed	failed
 R013	`building`, `reviewing`	workspace.uncertain	Ownership/cwd/head cannot be established	`needs_decision`	building,reviewing	workspace.uncertain	needs_decision
@@ -74,7 +74,7 @@ R072	`H`	resume.requested	Recorded decision resolves blocker; saved continuation
 R073	`H`	resume.requested	Successful-resume guard false	Same from-state	needs_decision,dependency_blocked	resume.requested	needs_decision,dependency_blocked
 R074	`paused`	decision.recorded	Authorized non-waiver blocker resolution for saved needs_decision hold	`paused`	paused	decision.recorded	paused
 R075	`paused`	resume.requested	Authorized pause resume; saved origin = queued; child/effects safe; queue continuation valid; deadline not expired	`queued`	paused	resume.requested	queued
-R076	`paused`	resume.requested	Authorized pause resume; saved origin in A; child/effects safe; continuation evidence valid; fresh note validated when return_state launches a job or closer; deadline not expired	`queued`	paused	resume.requested	queued
+R076	`paused`	resume.requested	Authorized pause resume; saved origin in A; child/effects safe; continuation evidence valid; deadline not expired	`queued`	paused	resume.requested	queued
 R077	`paused`	resume.requested	Authorized pause resume; saved origin in P; child/effects safe; acceptance/merge holds retain same pinned head; deadline not expired	Saved pause_return_state	paused	resume.requested	awaiting_acceptance,finished_awaiting_human,needs_decision,dependency_blocked,awaiting_merge
 R078	`paused`	resume.requested	Authorized pause resume; saved acceptance/merge hold has stale head; child/effects safe; deadline not expired	`needs_decision`	paused	resume.requested	needs_decision
 R079	`paused`	resume.requested	None of the preceding pause-resume guards holds	`paused`	paused	resume.requested	paused
@@ -84,7 +84,7 @@ R082	`job_running`	job.finished	Exit 0; non-service; required effect/verificatio
 R083	`job_running`	job.finished	Exit 0; authorized service runbook	`job_verifying`	job_running	job.finished	job_verifying
 R084	`job_running`	job.finished	Exit 0 but non-service success evidence missing	`job_failed`	job_running	job.finished	job_failed
 R085	`J`	job.failed	Known failure; no changed service state	`job_failed`	job_running,job_verifying	job.failed	job_failed
-R086	`job_running`	run.failed	Confirmed no effects; safe retry budget remains; fresh `[job-authorization]` note present	`job_running`	job_running	run.failed	job_running
+R086	`job_running`	run.failed	Confirmed no effects; safe retry budget remains	`job_running`	job_running	run.failed	job_running
 R087	`job_running`	run.failed	No changed service state; safe retry guard false	`job_failed`	job_running	run.failed	job_failed
 R088	`J`	job.failed / run.failed	Service state changed; backup receipt available	`job_rolling_back`	job_running,job_verifying	job.failed,run.failed	job_rolling_back
 R089	`J`	job.failed / run.failed	Service state changed; backup unavailable	`job_rollback_failed`	job_running,job_verifying	job.failed,run.failed	job_rollback_failed
