@@ -24,7 +24,7 @@ The repository also exposes `make formal`. The checked-in `lean-toolchain` pins 
 | `Runner/Traces.lean` | Executable happy paths, holds, failures and design counterexamples |
 | `Runner.lean` | Build entry point importing the model, proofs and traces |
 | `rows.tsv` | Numbered §5.1 source rows and expanded phase/event/target vocabulary |
-| `check_mapping.py` | Checks 32 phases, 53 events, 129 exact source rows and model row references against the design |
+| `check_mapping.py` | Checks 32 phases, 53 events, 130 exact source rows and model row references against the design |
 
 The source checker compares the state/event vocabulary and each numbered row's from-state, event, guard and target with the design. It also checks that every source row is referenced in the implementation. This is a drift check, not a second proof that an implementation comment has the right semantics.
 
@@ -47,6 +47,10 @@ The design distinguishes an invocation-ending hold from a terminal workflow. In 
 The model's terminal-absorption claim concerns the phase. The design permits `effect.observed`, `lease.release_requested`, and `observation.recorded` in every phase, including terminal phases. A concrete runtime may therefore add cleanup receipts, release a safe lease, or append sanitized evidence without changing a terminal phase. Absorption must not be interpreted as forbidding those changes to a full persisted record.
 
 Verified matching recovery receipts can also record an absent child, changed/restored service state, or backup evidence while a workflow is held. These observations update evidence, not effects or authority; a resume still checks the hold's safety and continuation guards.
+
+The loop5 lesson row R130 uses `Facts.infrastructureFailure` (default `false`) for a confirmed provider/budget failure in a harness-running phase. With unchanged service state, an absent or confirmed-exited child (`Facts.childExited`), and no unresolved effects, `run.failed` saves a `needs_decision` continuation without consuming rounds, nudges, or retries. Resolution plus explicit resume uses the existing same-attempt path. Uncertain child/service/effect evidence cannot fall through to a generic work retry; changed-service jobs still enter the existing rollback path. The separate `job_verifying` failure row R090 remains unchanged. Classification, diagnostic persistence, provider fallback authorization, and actual provider recovery remain adapter obligations.
+
+The `new_input_pause_resume_same_reviewer_identity_abstract` trace exercises the existing pause/cancel/resume/admission path and checks that the reviewer actor and attempt budgets survive. Versioned-input contents, attachment receipts, harness resume capability, and actual session resumption are not encoded. This trace does not establish delivery of new input or a real harness session's reuse.
 
 The design document describes the §8.2 values and §12 recommendations as proposals. Julian's 2026-10-08 decision on `td-3830f9` accepts the recommended defaults A–K and job authorization option 2: config allowance plus a ticket-scoped note, with configuration where meaningful. This recorded acceptance supersedes the document's pending-decision wording for those choices. Quantified results remain conditional on the modeled configuration and validated starting state; this project implements no runner runtime or job authorization policy.
 
@@ -127,8 +131,15 @@ Every trace below starts at `initial`; no failure state is supplied directly. Ev
 | R115 | Unsafe result holds unresolved effects and rejects merge events | `unsafe_result_hold_blocks_merge` |
 | R123 | Scheduler recovery fails | `scheduler_recovery_failed` |
 | R128–R129 | Scheduler / one-shot workflow persistence failure | `scheduler_storage_failed`, `workflow_storage_failed` |
+| R130, R120, R072, R010, R014 | Provider/budget hold and resolved same-attempt continuation; premature or stale-resolution resume refused | `infrastructure_failure_same_attempt_hold`, `infrastructure_failure_resolved_same_attempt_resume`, `infrastructure_failure_resume_before_resolution_refused`, `infrastructure_failure_repeated_blocker_needs_new_resolution`, `infrastructure_failure_job_same_attempt_resume` |
+| R130 guard exclusions | Unreconciled live/unknown child or unknown service refuses infrastructure retry | `infrastructure_failure_unknown_child_refused`, `infrastructure_failure_live_child_unreconciled_refused`, `infrastructure_failure_unknown_service_refused` |
+| R088–R089, R092 | Provider failure cannot bypass changed-service rollback | `infrastructure_failure_changed_service_restored`, `infrastructure_failure_changed_service_backup_unavailable` |
+| R090 | Provider evidence cannot suppress a verification-process failure without changed service | `infrastructure_failure_verification_without_changes_job_failed` |
+| R076, R095, R099, R010 | New-input control's abstract continuation preserves reviewer identity and budgets | `new_input_pause_resume_same_reviewer_identity_abstract` |
 
 The printed failure examples cover each failure/attention outcome in the end-state table: `failed`, `stopped`, `round_exhausted`, `acceptance_declined`, `job_failed`, `job_rolled_back`, `job_rollback_failed`, and `scheduler_failed`, plus the nonterminal attention holds. Existing success/control traces also illustrate `done`, `job_succeeded`, `finished_awaiting_human`, `awaiting_acceptance`, and `scheduler_stopped`. Safety flags and receipt fields are abstract evidence; these examples do not test a runtime sanitizer, cancellation driver, backup, or forge.
+
+A separate universally quantified guard assertion checks that an unresolved-effect building state rejects an infrastructure failure. It is an unsafe abstract-state regression, not a reachable failure trace; normal modeled events introduce unresolved effects while entering a hold.
 
 ## Name mapping
 
@@ -245,7 +256,7 @@ The source tables are authoritative for names. Lean constructors retain their sp
 
 ## Theorem index
 
-Row IDs below number the 129 source rows in order, as recorded in `rows.tsv` and model comments. The expanded aliases retain those source-row IDs.
+Row IDs below number the 130 source rows in order, as recorded in `rows.tsv` and model comments. The expanded aliases retain those source-row IDs.
 
 | Theorem | Claim and assumptions | Doc sections and source rows |
 |---|---|---|

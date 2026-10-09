@@ -128,6 +128,7 @@ structure Facts where
   firstReceipt : Bool := true
   beforeLaunchDeadline : Bool := true
   safeRetry : Bool := false
+  infrastructureFailure : Bool := false
   resultAvailable : Bool := true
   exitZero : Bool := true
   moreGates : Bool := false
@@ -251,7 +252,7 @@ def control (s : State) (target : Phase) : State :=
        else s.phase) else if pauseOriginValid s.phase then s.phase else s.pauseReturnState }
 
 /-- Total transition relation, §5.1. Dispatch groups the source rows by event;
-comments preserve all R001–R129 identifiers. Guard precedence follows the
+comments preserve all R001–R130 identifiers. Guard precedence follows the
 disjoint table guards. Finite aliases are literal enumerations above and their
 individual source-row expansions are recorded in rows.tsv. -/
 def rowStep (c : Config) (s : State) (e : Event) : State := Id.run do
@@ -352,7 +353,13 @@ def rowStep (c : Config) (s : State) (e : Event) : State := Id.run do
     phase := .failed, child := .absent }
     return s
   | .runFailed =>
+    -- §5.1 row R130: confirmed provider/budget blocker preserves this attempt.
+    if running p && f.infrastructureFailure && s.service == .unchanged &&
+        (s.child == .absent || f.childExited) && !s.effectUnresolved then
+      return { (saveDecisionHold s) with child := .absent, blockerResolved := false }
     if buildReviewCloser p then
+      -- Unsafe infrastructure evidence never falls through to a work retry.
+      if f.infrastructureFailure then return s
       -- §5.1 rows R027–R029: only safe retry, no extra round for reviewer/closer.
       if f.safeRetry && s.retries < c.runRetries then
         if p == .building && !(s.rounds < c.maxRounds) then return { s with
@@ -371,6 +378,7 @@ def rowStep (c : Config) (s : State) (e : Event) : State := Id.run do
         if s.backupAvailable then return rollBack ({ s with child := .absent }) none
         else return { s with
     phase := .jobRollbackFailed, child := .absent }
+      if p == .jobRunning && f.infrastructureFailure then return s
       -- §5.1 rows R086–R087 and R090.
       if p == .jobRunning && s.service == .unchanged && f.safeRetry && s.retries < c.runRetries then
         return { s with

@@ -36,7 +36,7 @@ def main() -> None:
     assert constructors(source, "EventKind") == {camel(name) for name in events}
     with (project / "rows.tsv").open(newline="") as stream:
         actual_rows = list(csv.DictReader(stream, delimiter="\t"))
-    assert len(actual_rows) == len(expected_rows) == 129
+    assert len(actual_rows) == len(expected_rows) == 130
     for index, (actual, expected) in enumerate(zip(actual_rows, expected_rows), 1):
         assert actual["row"] == f"R{index:03}"
         assert [actual[key] for key in ("from", "event", "guard", "to")] == expected[:4]
@@ -46,9 +46,9 @@ def main() -> None:
     referenced = set()
     for first, last in re.findall(r"R(\d{3})(?:[–-]R(\d{3}))?", implementation):
         referenced.update(range(int(first), int(last or first) + 1))
-    assert referenced == set(range(1, 130))
+    assert referenced == set(range(1, 131))
     print(
-        "PASS: 32 phases, 53 events, 129 exact design rows and implementation references"
+        "PASS: 32 phases, 53 events, 130 exact design rows and implementation references"
     )
 
 
