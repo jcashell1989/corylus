@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Loop5 runs · Corylus</title>
+  <link rel="icon" href="/static/assets/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/runs.css">
+  <script defer src="/static/runs_model.js"></script><script defer src="/static/runs.js"></script>
+</head>
+<body>
+  <header class="app-header"><div><a href="/" class="back">← Corylus project flow</a><h1>Loop5 runs</h1><p class="muted">Read-only runner visibility · cost: not reported</p></div><div class="refresh"><span id="updated" role="status">Waiting for first refresh</span><button id="refresh" type="button">Refresh now</button></div></header>
+  <main>
+    <div id="messages" role="status" hidden></div>
+    <section aria-labelledby="live-title"><div class="section-heading"><h2 id="live-title">Live lanes</h2><p class="muted">Elapsed and activity times update every second. Source refreshes every 15 seconds.</p></div><div id="lanes" class="lanes"><p class="empty">Loading lane state…</p></div></section>
+    <section aria-labelledby="queue-title"><div class="section-heading"><h2 id="queue-title">Active loop5 queue</h2><span id="queue-count" class="muted"></span></div><div class="table-scroll" id="queue"></div></section>
+    <section aria-labelledby="analytics-title" class="analytics">
+      <div class="section-heading"><div><h2 id="analytics-title">Model performance</h2><p class="muted">Uses each ticket’s current points. Missing points are unpointed; zero points are never divided.</p></div></div>
+      <form id="filters" class="filters"><label>Window<select id="window"><option value="24h">24 hours</option><option value="7d">7 days</option><option value="30d">30 days</option><option value="all">All recorded history</option></select></label><label>Story points<select id="points-mode"><option value="all">All points</option><option value="value">Single value</option><option value="range">Range (inclusive)</option><option value="unpointed">Unpointed</option></select></label><label id="value-label" hidden>Point value<input id="points-value" type="number" min="0" step="any" value="1"></label><label id="min-label" hidden>Minimum points<input id="points-min" type="number" min="0" step="any" placeholder="Any"></label><label id="max-label" hidden>Maximum points<input id="points-max" type="number" min="0" step="any" placeholder="Any"></label><label>View<select id="view"><option value="runs">Run durations</option><option value="normalized">Normalized by story points</option></select></label></form>
+      <p id="selection" class="muted methodology"></p><div class="table-scroll" id="models"></div>
+      <div id="normalized" hidden><h3>Outcome rates by current point value</h3><div class="table-scroll" id="point-outcomes"></div><h3>Rounds before APPROVE by current point value</h3><p class="muted methodology">Grouped by the recorded builder model of the approving judge run. Only tickets whose first recorded APPROVE falls in this selection appear.</p><div class="table-scroll" id="point-rounds"></div></div>
+      <div class="analytics-grid"><div><h3>Judge verdicts by builder model</h3><p class="muted">Builder attribution comes from recorded sources. Unattributed verdicts stay unknown.</p><div class="table-scroll" id="verdicts"></div></div><div><h3>Build rounds before first APPROVE</h3><p class="muted">Distinct explicitly recorded build rounds across available history, before the ticket’s first recorded APPROVE in the selected window. Retries in one round count once. Missing round metadata or undated builds show unknown; recorded build starts are shown separately.</p><div class="table-scroll" id="rounds"></div></div></div>
+      <p class="muted methodology">Windows use recorded start time, or end time when no start is recorded. Durations use recorded start and end only. Median averages the middle pair; p90 uses nearest rank. Counts include each recorded run; running, skipped and unknown outcomes appear under other. A budget-blocked run appears in the budget column. No costs are reported.</p>
+    </section>
+  </main>
+</body>
+</html>

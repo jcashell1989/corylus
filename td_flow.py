@@ -12,6 +12,7 @@ import socket
 import subprocess
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -278,11 +279,20 @@ def export_td(project, td_binary="td", timeout=EXPORT_TIMEOUT, max_bytes=EXPORT_
 def read_td_points(projects, td_binary="td"):
     """Read only current points from the configured trackers, without exporting TD."""
     points = {}
-    for project in projects.values():
-        rows = _td_json(project, ["list", "--all", "--limit", str(MAX_ISSUES), "--json"],
-                        td_binary)
-        if not isinstance(rows, list) or len(rows) >= MAX_ISSUES:
-            raise FlowError("Current ticket points are unavailable or exceed the ticket limit.")
+    def read_project(project):
+        try:
+            rows = _td_json(project, ["list", "--all", "--limit", str(MAX_ISSUES), "--json"],
+                            td_binary, timeout=2.0)
+        except FlowError:
+            return None
+        return rows if isinstance(rows, list) and len(rows) < MAX_ISSUES else None
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        results = list(pool.map(read_project, projects.values()))
+    for rows in results:
+        if rows is None:
+            points["_incomplete"] = True
+            continue
         for row in rows:
             if not isinstance(row, dict):
                 raise FlowError("Current ticket points have an unsupported schema.")
