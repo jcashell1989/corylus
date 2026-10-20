@@ -153,7 +153,7 @@ def main():
         source = Path(directory)
         points = write_fixture(source)
         (source / "td-a001.judge-r1.out").write_text(
-            "VERDICT: REJECT SYNTHETIC_VERDICT_DETAIL\n"
+            "VERDICT: REJECT SYNTHETIC_VERDICT_DETAIL " + "synthetic detail " * 80 + "\n"
         )
         (source / "td-a001.judge-r2.out").write_text("VERDICT: APPROVE " + "a" * 40 + "\n")
         projects = projects_from_specs([f"Fixture={source}"])

@@ -317,10 +317,15 @@ class RunsTests(unittest.TestCase):
     def test_extended_judge_verdicts_expose_only_the_enum(self):
         for verdict, suffix in [
             ("APPROVE", " abc1234"),
+            ("APPROVE", " " + "abc12345" * 5),
+            ("APPROVE", " abc1234\r"),
+            ("REJECT", " " + "x" * 512),
+            ("REJECT", " " + "x" * 513),
+            ("REJECT", " " + "synthetic reason " * 512),
             ("REJECT", " because a synthetic acceptance check failed"),
             ("APPROVE", "\t(head abc1234; synthetic checks passed)"),
         ]:
-            with self.subTest(verdict=verdict, suffix=suffix):
+            with self.subTest(verdict=verdict, suffix_length=len(suffix)):
                 (self.directory / "td-a001.judge-r1.out").write_text(
                     f"VERDICT: {verdict}{suffix}\n"
                 )
@@ -329,13 +334,25 @@ class RunsTests(unittest.TestCase):
                 self.assertEqual(judge["verdict"], verdict)
                 self.assertNotIn(suffix.strip(), json.dumps(snapshot))
 
+    def test_last_extended_verdict_wins(self):
+        for final in ["APPROVE", "REJECT"]:
+            with self.subTest(final=final):
+                first = "REJECT" if final == "APPROVE" else "APPROVE"
+                (self.directory / "td-a001.judge-r1.out").write_text(
+                    f"VERDICT: {first} synthetic earlier assessment\n"
+                    f"VERDICT: {final} abc1234\n"
+                )
+                judge = next(
+                    r for r in self.snapshot()["runs"] if r["label"] == "judge-r1"
+                )
+                self.assertEqual(judge["verdict"], final)
+
     def test_verdict_word_boundaries_and_sources_remain_strict(self):
         for text in [
             "VERDICT: APPROVED\n",
             "VERDICT: REJECTED because of a synthetic check\n",
             "Quoted VERDICT: APPROVE abc1234\n",
             "> VERDICT: REJECT synthetic quote\n",
-            "VERDICT: APPROVE " + "x" * 513 + "\n",
             "VERDICT:\nAPPROVE\n",
         ]:
             with self.subTest(text=text[:60]):
@@ -400,6 +417,15 @@ class RunsTests(unittest.TestCase):
         self.assertEqual(snapshot["queue"][0]["state"], "finished")
         self.assertEqual(snapshot["queue"][0]["label"], "judge-r1")
         self.assertEqual(snapshot["queue"][0]["last_activity"], "2026-10-19T10:18:00+00:00")
+
+        # An explicitly observed but unclassified job must not inherit a builder identity.
+        with (self.directory / "status.txt").open("a") as file:
+            file.write("2026-10-19T10:19:00Z td-b001 custom-r2 start\n")
+        row = self.snapshot()["queue"][0]
+        self.assertEqual(row["label"], "custom-r2")
+        self.assertEqual(row["kind"], "unknown")
+        self.assertEqual(row["model"], "unknown")
+        self.assertEqual(row["start_time"], "2026-10-19T10:19:00+00:00")
 
     def test_recorded_75_minute_timeout_is_not_an_elapsed_time_guess(self):
         (self.directory / "status.txt").write_text(

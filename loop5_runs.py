@@ -495,7 +495,11 @@ class RunsStore:
                 if activity:
                     run["last_activity"] = _iso(activity)
             verdicts = re.findall(
-                r"(?m)^\s*VERDICT:\s*(APPROVE|REJECT)\s*$", "\n".join(verdict_texts)
+                # Final outputs can append a head SHA or reason of any length.
+                # Read only the enum and check its boundary without consuming or
+                # exposing the suffix. Source-file reads are already bounded.
+                r"(?m)^[ \t]*VERDICT:[ \t]*(APPROVE|REJECT)(?=[ \t]|\r?$)",
+                "\n".join(verdict_texts),
             )
             if run["kind"] == "unknown":
                 # Labels are identity, not evidence of purpose. Only explicit conventional
@@ -633,13 +637,11 @@ class RunsStore:
             expected_kind = (
                 "build" if column == "building" else "judge" if column == "reviewing" else "unknown"
             )
-            latest_run = ticket_runs[-1] if ticket_runs else None
-            active = (
-                latest_run
-                if latest_run
-                and (expected_kind == "unknown" or latest_run["kind"] == expected_kind)
-                else None
-            )
+            # Columns describe ticket workflow and can still say building during
+            # a one-off judge. Explicit latest job evidence supplies its identity
+            # and timing, including a terminal job before state catches up.
+            active = ticket_runs[-1] if ticket_runs else None
+            kind = active["kind"] if active else expected_kind
             start = _time(record.get("start_time"))
             activity = _time(record.get("last_event_time"))
             queue.append(
@@ -649,9 +651,9 @@ class RunsStore:
                     "model": active["model"]
                     if active and active["model"] != "unknown"
                     else _identifier(record.get("model"), model=True)
-                    if expected_kind == "build"
+                    if kind == "build"
                     else "unknown",
-                    "kind": active["kind"] if active else expected_kind,
+                    "kind": kind,
                     "state": active["state"]
                     if active
                     else "running"

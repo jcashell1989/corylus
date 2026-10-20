@@ -33,6 +33,12 @@ service restart, ingress change, runner control or writes to loop5 sources.
   sample count shown.
 - A judge's builder model is only populated from a recorded queue-round or lane
   build/judge association. Missing model or association evidence remains unknown.
+- Final-result verdict lines accept APPROVE or REJECT followed by a SHA or reason.
+  Only the exact verdict prefix is parsed; trailing details stay private. Source
+  reads remain bounded by the file-size limit.
+- Queue rows use the latest recorded job's kind, model and timing even if the
+  ticket's workflow column still says building during a judge. The ticket's
+  assigned builder model never supplies a missing judge model.
 - Build rounds count distinct explicit recorded round numbers before the first
   recorded APPROVE. Missing round metadata produces **unknown**, rather than
   treating gateway retries or label numbers as rounds. Recorded build starts are
