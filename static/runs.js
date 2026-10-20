@@ -42,7 +42,7 @@
         const list = node('dl');
         addTime(list, 'Started', date(run.start_time));
         const seconds = Model.duration(run);
-        addTime(list, 'Elapsed', seconds === null ? active(run) ? since(run.start_time) : 'unknown' : elapsed(seconds), seconds === null && active(run) ? { kind: 'elapsed', timestamp: run.start_time } : null);
+        addTime(list, 'Elapsed', active(run) ? since(run.start_time) : seconds === null ? 'unknown' : elapsed(seconds), active(run) ? { kind: 'elapsed', timestamp: run.start_time } : null);
         addTime(list, 'Since activity', since(run.last_activity), { kind: 'activity', timestamp: run.last_activity });
         addTime(list, 'Current points', points(Model.pointsOf(run)));
         if (run.state === 'waiting_budget') addTime(list, 'Next retry', date(run.next_retry));
@@ -57,7 +57,7 @@
       const label = node('div', jobName(job));
       const meta = node('div', jobDetail(job));
       const started = date(job.start_time), seconds = Model.duration(job);
-      const age = node('span', seconds === null ? active(job) ? since(job.start_time) : 'unknown' : elapsed(seconds)); if (seconds === null && active(job)) { age.dataset.clock = 'elapsed'; age.dataset.timestamp = job.start_time || ''; }
+      const age = node('span', active(job) ? since(job.start_time) : seconds === null ? 'unknown' : elapsed(seconds)); if (active(job)) { age.dataset.clock = 'elapsed'; age.dataset.timestamp = job.start_time || ''; }
       const activity = node('span', since(job.last_activity)); activity.dataset.clock = 'activity'; activity.dataset.timestamp = job.last_activity || '';
       return [label, meta, badge(job.state), started, age, activity, job.state === 'waiting_budget' ? date(job.next_retry) : '—', points(Model.pointsOf(job))];
     }), 'No active loop5 queue tickets recorded.');

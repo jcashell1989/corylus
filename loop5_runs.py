@@ -136,6 +136,49 @@ class _Reader:
             if fd is not None:
                 os.close(fd)
 
+    def latest_activity(self, relative: str, depth: int = 2) -> datetime | None:
+        """Read only file metadata in the known session directory, never transcripts."""
+        opened = []
+        try:
+            parent = self.fd
+            for part in relative.split("/"):
+                if not IDENT.fullmatch(part):
+                    return None
+                parent = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
+                opened.append(parent)
+
+            def scan(fd: int, remaining: int) -> float:
+                latest = 0.0
+                names = os.listdir(fd)
+                if len(names) > 1000:
+                    self.warnings.add(
+                        "A session has too many entries; activity observations may be incomplete."
+                    )
+                for name in names[:1000]:
+                    try:
+                        info = os.stat(name, dir_fd=fd, follow_symlinks=False)
+                        if stat.S_ISREG(info.st_mode):
+                            latest = max(latest, info.st_mtime)
+                        elif remaining and stat.S_ISDIR(info.st_mode):
+                            child = os.open(
+                                name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd
+                            )
+                            try:
+                                latest = max(latest, scan(child, remaining - 1))
+                            finally:
+                                os.close(child)
+                    except OSError:
+                        continue
+                return latest
+
+            timestamp = scan(parent, depth)
+            return datetime.fromtimestamp(timestamp, UTC) if timestamp else None
+        except OSError:
+            return None
+        finally:
+            for fd in reversed(opened):
+                os.close(fd)
+
 
 class RunsStore:
     def __init__(
@@ -396,8 +439,11 @@ class RunsStore:
                     diagnostic_texts.append("\n".join(text.rstrip().splitlines()[-3:]))
                     if mtime and (not activity or mtime > activity):
                         activity = min(mtime, now)
-                    if text.startswith("OpenAI Codex "):
-                        header = re.split(r"(?m)^user(?::|$)", text[:8000], maxsplit=1)[0]
+                    cli = re.search(r"(?m)^OpenAI Codex [^\n]*\n", text[:1024])
+                    if cli:
+                        header = re.split(
+                            r"(?m)^user(?::|$)", text[cli.start() : 8000], maxsplit=1
+                        )[0]
                         model = re.search(r"(?m)^model:\s*([a-zA-Z0-9_./-]+)\s*$", header)
                         if model:
                             run["model"] = _identifier(model[1], model=True)
@@ -421,21 +467,29 @@ class RunsStore:
                     run["state"] = "waiting_budget"
                 elif deadline:
                     run["state"] = "timed_out"
-            if activity and run["state"] == "running":
-                run["last_activity"] = _iso(activity)
+            if run["state"] == "running":
+                session_path = (
+                    f"sessions/{ticket}"
+                    if run["source"] == "queue"
+                    else f"sessions/omp-{ticket}-{label}"
+                )
+                session_activity = reader.latest_activity(session_path)
+                if session_activity and (not activity or session_activity > activity):
+                    activity = min(session_activity, now)
+                if activity:
+                    run["last_activity"] = _iso(activity)
             verdicts = re.findall(
                 r"(?m)^\s*VERDICT:\s*(APPROVE|REJECT)\s*$", "\n".join(verdict_texts)
             )
-            if verdicts and (run["end_time"] or run["state"] == "finished"):
-                run["verdict"] = verdicts[-1]
-                run["kind"] = "judge"
             if run["kind"] == "unknown":
                 # Labels are identity, not evidence of purpose. Only explicit conventional
                 # labels that name the job kind are classified.
-                if re.fullmatch(r"(?:build|impl)(?:[-.].*)?", label):
+                if re.fullmatch(r"(?:build|impl)(?:[-.0-9].*)?", label):
                     run["kind"] = "build"
                 elif re.fullmatch(r"(?:review|judge)(?:[-.0-9].*)?", label):
                     run["kind"] = "judge"
+            if verdicts and run["kind"] == "judge" and run["end_time"]:
+                run["verdict"] = verdicts[-1]
 
         lanes = []
         for filename in reader.names("serial"):
@@ -567,7 +621,6 @@ class RunsStore:
             active = (
                 latest_run
                 if latest_run
-                and latest_run["state"] in ("running", "waiting_budget")
                 and (expected_kind == "unknown" or latest_run["kind"] == expected_kind)
                 else None
             )
@@ -576,17 +629,13 @@ class RunsStore:
             queue.append(
                 {
                     "ticket": ticket,
-                    "label": _identifier(record.get("phase")),
+                    "label": active["label"] if active else _identifier(record.get("phase")),
                     "model": active["model"]
                     if active
                     else _identifier(record.get("model"), model=True)
                     if expected_kind == "build"
                     else "unknown",
-                    "kind": "build"
-                    if column == "building"
-                    else "judge"
-                    if column == "reviewing"
-                    else "unknown",
+                    "kind": active["kind"] if active else expected_kind,
                     "state": active["state"]
                     if active
                     else "running"
