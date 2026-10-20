@@ -1,7 +1,7 @@
 module.exports = [{
   ignores: ["static/vendor/**", "node_modules/**"]
 }, {
-  files: ["static/flow*.js", "tests/test_flow_*.js"],
+  files: ["static/flow*.js", "tests/test_flow_*.js", "static/runs*.js", "tests/test_runs*.js"],
   languageOptions: {
     ecmaVersion: 2022,
     sourceType: "script",
