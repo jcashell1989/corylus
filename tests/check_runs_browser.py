@@ -41,13 +41,29 @@ def check(base, server, source, screenshots, chromium):
         assert atlas.locator("td").all_text_contents()[1:6] == ["2", "1", "1", "1", "1"]
         assert atlas.locator("td").all_text_contents()[6:] == ["20.0 min", "30.0 min", "2"]
         verdict = page.locator("#verdicts tbody tr").filter(has_text="lab/atlas")
+        expect(verdict).to_have_count(1)
         assert verdict.locator("td").all_text_contents() == ["lab/atlas", "1", "1"]
-        output = json.dumps(page.request.get(base + "/api/runs").json())
+        snapshot = page.request.get(base + "/api/runs").json()
+        analytics = page.evaluate(
+            "runs => RunsModel.analyze(runs, {window: 'all'})", snapshot["runs"]
+        )
+        assert analytics["verdicts"] == [
+            {"builder_model": "lab/atlas", "APPROVE": 1, "REJECT": 1}
+        ]
+        assert analytics["rounds"] == [
+            {"ticket": "td-a001", "builder_model": "lab/atlas", "points": 2,
+             "rounds": None, "observed_builds": 2}
+        ]
+        expect(page.locator("#rounds tbody tr")).to_have_count(1)
+        assert page.locator("#rounds tbody td").all_text_contents() == [
+            "td-a001", "lab/atlas", "2", "unknown", "2"
+        ]
+        output = json.dumps(snapshot)
         for forbidden in ("SYNTHETIC_PRIVATE_OUTPUT", "/private/", "sk-synthetic", ".env",
-                          str(source), "roles.yml"):
+                          str(source), "roles.yml", "SYNTHETIC_VERDICT_DETAIL", "a" * 40):
             assert forbidden not in output
             assert forbidden not in page.locator("body").inner_text()
-        print("PASS fixture parser to DOM, exact hand counts, verdicts and private-data exclusion")
+        print("PASS extended APPROVE+SHA/REJECT+reason parser-to-analytics/DOM counts, rounds and privacy")
 
         page.locator("#points-mode").select_option("value")
         page.locator("#points-value").fill("2")
@@ -72,10 +88,40 @@ def check(base, server, source, screenshots, chromium):
         page.screenshot(path=str(screenshots / "loop5-runs-mobile-fixture.png"), full_page=True)
         page.set_viewport_size({"width": 1600, "height": 1100})
 
+        # A one-off judge can start without changing the engine's coarse building column.
+        with (source / "status.txt").open("a") as file:
+            file.write("2026-10-19T11:00:00Z td-a005 build FINISHED (exit 0)\n")
+            file.write("2026-10-19T11:01:00Z td-a005 judge1 start\n")
+        (source / "td-a005.judge1.out.log").write_text(
+            "OpenAI Codex v0.0\nmodel: lab/sage\nuser\n"
+        )
+        state = json.loads((source / "state.json").read_text())
+        next(record for record in state["tickets"] if record["id"] == "td-a005")[
+            "phase"
+        ] = "judge1 start"
+        (source / "state.json").write_text(json.dumps(state))
+        server.runs_store = RunsStore(source, server.runs_store.points_provider)
+        page.locator("#refresh").click()
+        current = page.locator("#queue tbody tr").filter(has_text="td-a005")
+        expect(current).to_contain_text("judge1")
+        cells = current.locator("td").all_text_contents()
+        assert cells[1:3] == ["judge · lab/sage", "Running"]
+        assert all(value != "unknown" for value in cells[3:6])
+        assert current.locator('[data-clock="elapsed"]').get_attribute(
+            "data-timestamp"
+        ) == "2026-10-19T11:01:00+00:00"
+        snapshot = page.request.get(base + "/api/runs").json()
+        job = next(row for row in snapshot["queue"] if row["ticket"] == "td-a005")
+        run = next(row for row in snapshot["runs"] if row["id"] == job["current_run_id"])
+        assert job["column"] == "building"
+        for field in ("label", "kind", "model", "state", "start_time", "last_activity"):
+            assert job[field] == run[field]
+        print("PASS stale building column preserves one-off judge job/model/start/elapsed/activity")
+
         # A new source record must appear from polling without a click or navigation.
         with (source / "status.txt").open("a") as file:
-            file.write("2026-10-19T11:00:00Z td-a007 build start\n")
-        expect(page.locator("#selection")).to_contain_text("11 recorded runs selected", timeout=22000)
+            file.write("2026-10-19T11:02:00Z td-a007 build start\n")
+        expect(page.locator("#selection")).to_contain_text("12 recorded runs selected", timeout=22000)
         print("PASS automatic polling reflects new source records without manual reload")
 
         page.route("**/api/runs", lambda route: route.fulfill(status=503, body="{}"))
@@ -106,6 +152,10 @@ def main():
     with tempfile.TemporaryDirectory(prefix="corylus-runs-browser-") as directory:
         source = Path(directory)
         points = write_fixture(source)
+        (source / "td-a001.judge-r1.out").write_text(
+            "VERDICT: REJECT SYNTHETIC_VERDICT_DETAIL\n"
+        )
+        (source / "td-a001.judge-r2.out").write_text("VERDICT: APPROVE " + "a" * 40 + "\n")
         projects = projects_from_specs([f"Fixture={source}"])
         store = FlowStore(projects, exporter=lambda project, _: normalize_export([], project))
         server = FlowServer(("127.0.0.1", 0), store,

@@ -314,6 +314,93 @@ class RunsTests(unittest.TestCase):
         self.assertEqual(judge["model"], "lab/sage")
         self.assertEqual(judge["verdict"], "REJECT")
 
+    def test_extended_judge_verdicts_expose_only_the_enum(self):
+        for verdict, suffix in [
+            ("APPROVE", " abc1234"),
+            ("REJECT", " because a synthetic acceptance check failed"),
+            ("APPROVE", "\t(head abc1234; synthetic checks passed)"),
+        ]:
+            with self.subTest(verdict=verdict, suffix=suffix):
+                (self.directory / "td-a001.judge-r1.out").write_text(
+                    f"VERDICT: {verdict}{suffix}\n"
+                )
+                snapshot = self.snapshot()
+                judge = next(r for r in snapshot["runs"] if r["label"] == "judge-r1")
+                self.assertEqual(judge["verdict"], verdict)
+                self.assertNotIn(suffix.strip(), json.dumps(snapshot))
+
+    def test_verdict_word_boundaries_and_sources_remain_strict(self):
+        for text in [
+            "VERDICT: APPROVED\n",
+            "VERDICT: REJECTED because of a synthetic check\n",
+            "Quoted VERDICT: APPROVE abc1234\n",
+            "> VERDICT: REJECT synthetic quote\n",
+            "VERDICT: APPROVE " + "x" * 513 + "\n",
+            "VERDICT:\nAPPROVE\n",
+        ]:
+            with self.subTest(text=text[:60]):
+                (self.directory / "td-a001.judge-r1.out").write_text(text)
+                (self.directory / "td-a001.judge-r1.out.log").write_text(
+                    "OpenAI Codex v0.0\nmodel: lab/sage\nuser\n"
+                    "VERDICT: APPROVE abc1234\n"
+                )
+                judge = next(
+                    r for r in self.snapshot()["runs"] if r["label"] == "judge-r1"
+                )
+                self.assertIsNone(judge["verdict"])
+
+    def test_latest_oneoff_judge_overrides_stale_building_column(self):
+        (self.directory / "status.txt").write_text(
+            "2026-10-19T10:00:00Z td-b001 build start\n"
+            "2026-10-19T10:10:00Z td-b001 build FINISHED (exit 0)\n"
+            "2026-10-19T10:12:00Z td-b001 judge-r1 start\n"
+        )
+        (self.directory / "state.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": 2,
+                    "tickets": [
+                        {
+                            "id": "td-b001",
+                            "column": "building",
+                            "running": True,
+                            "phase": "build",
+                            "model": "lab/builder",
+                            "start_time": "2026-10-19T10:00:00Z",
+                            "last_event_time": "2026-10-19T10:10:00Z",
+                        }
+                    ],
+                }
+            )
+        )
+        log = self.directory / "td-b001.judge-r1.out.log"
+        log.write_text("OpenAI Codex v0.0\nmodel: lab/judge\nuser\n")
+        os.utime(log, (1792405020, 1792405020))
+        snapshot = self.snapshot()
+        judge = snapshot["runs"][-1]
+        row = snapshot["queue"][0]
+        for field in [
+            "label", "kind", "model", "state", "start_time", "last_activity", "next_retry"
+        ]:
+            self.assertEqual(row[field], judge[field], field)
+        self.assertEqual(row["current_run_id"], judge["id"])
+        self.assertEqual(row["model"], "lab/judge")
+        self.assertEqual(row["start_time"], "2026-10-19T10:12:00+00:00")
+        self.assertEqual(row["last_activity"], "2026-10-19T10:17:00+00:00")
+
+        # A missing judge model cannot borrow the ticket's builder model.
+        log.write_text("OpenAI Codex v0.0\nuser\n")
+        self.assertEqual(self.snapshot()["queue"][0]["model"], "unknown")
+
+        # The last observed terminal job also wins over the stale building column.
+        with (self.directory / "status.txt").open("a") as file:
+            file.write("2026-10-19T10:18:00Z td-b001 judge-r1 FINISHED (exit 0)\n")
+        snapshot = self.snapshot()
+        self.assertEqual(snapshot["queue"][0]["current_run_id"], snapshot["runs"][-1]["id"])
+        self.assertEqual(snapshot["queue"][0]["state"], "finished")
+        self.assertEqual(snapshot["queue"][0]["label"], "judge-r1")
+        self.assertEqual(snapshot["queue"][0]["last_activity"], "2026-10-19T10:18:00+00:00")
+
     def test_recorded_75_minute_timeout_is_not_an_elapsed_time_guess(self):
         (self.directory / "status.txt").write_text(
             "2026-10-19T10:00:00Z td-b001 build start\n"
