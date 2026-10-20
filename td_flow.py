@@ -18,6 +18,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
+from loop5_runs import RunsStore
+
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
 EXPORT_TIMEOUT = 10.0
@@ -37,6 +39,7 @@ STATIC_FILES = {
     "/static/vendor/elk.bundled.js": "vendor/elk.bundled.js",
 }
 for _asset in (
+    "runs.html", "runs.css", "runs.js", "runs_model.js",
     "fonts/ahn-upright-latin.woff2", "fonts/ahn-italic-latin.woff2",
     "fonts/maple-mono-regular.woff2", "fonts/maple-mono-bold.woff2",
     "assets/favicon.svg", "assets/brake-traced.svg", "assets/brake-traced-cream.svg",
@@ -44,6 +47,7 @@ for _asset in (
 ):
     STATIC_FILES["/" + _asset] = _asset
     STATIC_FILES["/static/" + _asset] = _asset
+STATIC_FILES["/runs"] = "runs.html"
 
 
 class FlowError(Exception):
@@ -217,11 +221,11 @@ def normalize_export(export, project):
     }
 
 
-def export_td(project, td_binary="td", timeout=EXPORT_TIMEOUT, max_bytes=EXPORT_MAX_BYTES):
+def _td_json(project, command, td_binary="td", timeout=EXPORT_TIMEOUT, max_bytes=EXPORT_MAX_BYTES):
     """Bound stdout in memory, discard stderr, and kill/reap on every failure."""
     try:
         process = subprocess.Popen(
-            [td_binary, "export", "--all", "--format", "json"], cwd=project.path,
+            [td_binary, *command], cwd=project.path,
             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL,
             env={**os.environ, "TD_ANALYTICS": "false"},
         )
@@ -257,12 +261,39 @@ def export_td(project, td_binary="td", timeout=EXPORT_TIMEOUT, max_bytes=EXPORT_
             parsed = json.loads(output)
         except (ValueError, UnicodeDecodeError) as exc:
             raise FlowError("TD returned an invalid JSON export.") from exc
-        return normalize_export(parsed, project)
+        return parsed
     finally:
         if process.poll() is None:
             process.kill()
         process.wait()
         process.stdout.close()
+
+
+def export_td(project, td_binary="td", timeout=EXPORT_TIMEOUT, max_bytes=EXPORT_MAX_BYTES):
+    return normalize_export(_td_json(
+        project, ["export", "--all", "--format", "json"], td_binary, timeout, max_bytes,
+    ), project)
+
+
+def read_td_points(projects, td_binary="td"):
+    """Read only current points from the configured trackers, without exporting TD."""
+    points = {}
+    for project in projects.values():
+        rows = _td_json(project, ["list", "--all", "--limit", str(MAX_ISSUES), "--json"],
+                        td_binary)
+        if not isinstance(rows, list) or len(rows) >= MAX_ISSUES:
+            raise FlowError("Current ticket points are unavailable or exceed the ticket limit.")
+        for row in rows:
+            if not isinstance(row, dict):
+                raise FlowError("Current ticket points have an unsupported schema.")
+            ticket = _identifier(row.get("id"), "ticket")
+            value = row.get("points")
+            if value is not None and (isinstance(value, bool) or not isinstance(value, (int, float))):
+                value = None
+            if ticket in points and points[ticket] != value:
+                raise FlowError("Current ticket points conflict between configured projects.")
+            points[ticket] = value
+    return points
 
 
 class FlowStore:
@@ -299,8 +330,9 @@ class FlowServer(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
 
-    def __init__(self, address, store, allowed_hosts=None, static_dir=STATIC_DIR):
+    def __init__(self, address, store, allowed_hosts=None, static_dir=STATIC_DIR, runs_store=None):
         self.store = store
+        self.runs_store = runs_store or RunsStore(None)
         self.static_dir = Path(static_dir).resolve()
         self.allowed_hosts = {host.lower() for host in (allowed_hosts or [address[0]])}
         if address[0] in ("localhost", "127.0.0.1", "::1"):
@@ -405,6 +437,14 @@ class FlowHandler(BaseHTTPRequestHandler):
             return
         if url.path == "/api/projects" and not query:
             self._reply(200, {"projects": [p.public() for p in self.server.store.projects.values()]}, head=head)
+        elif url.path == "/api/runs":
+            if query:
+                self._reply(400, {"error": "Runs does not accept query parameters."}, head=head)
+                return
+            try:
+                self._reply(200, self.server.runs_store.get(), head=head)
+            except Exception:  # noqa: BLE001 -- never disclose source errors or paths
+                self._reply(503, {"error": "Loop5 runs are unavailable."}, head=head)
         elif url.path == "/api/flow":
             if set(query) != {"project"} or len(query["project"]) != 1:
                 self._reply(400, {"error": "Choose one configured project."}, head=head)
@@ -475,6 +515,8 @@ def main(argv=None):
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8791)
     parser.add_argument("--td", default="td", help="TD executable.")
+    parser.add_argument("--loop5-state-dir", type=Path,
+                        help="Read-only loop5 state directory for the runs page.")
     parser.add_argument("--allow-host", action="append", default=[], help="Additional trusted HTTP hostname (without port), e.g. a reverse proxy hostname.")
     args = parser.parse_args(argv)
     try:
@@ -487,7 +529,10 @@ def main(argv=None):
         parser.error("Port must be between 0 and 65535.")
     allowed = args.allow_host + ([] if args.host in ("0.0.0.0", "::") else [args.host])
     try:
-        server = FlowServer((args.host, args.port), FlowStore(projects, args.td), allowed_hosts=allowed)
+        runs_store = RunsStore(args.loop5_state_dir,
+                               points_provider=lambda: read_td_points(projects, args.td))
+        server = FlowServer((args.host, args.port), FlowStore(projects, args.td),
+                            allowed_hosts=allowed, runs_store=runs_store)
     except OSError:
         parser.error("The server could not bind the requested address.")
     print(f"Corylus TD Flow listening on port {server.server_port}; {len(projects)} configured project(s).")
