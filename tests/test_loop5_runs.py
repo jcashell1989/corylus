@@ -337,6 +337,58 @@ class RunsTests(unittest.TestCase):
         self.assertEqual(run["last_activity"], "2026-10-19T10:05:00+00:00")
         self.assertNotIn("SYNTHETIC_TRANSCRIPT_TOKEN", json.dumps(self.snapshot()))
 
+    def test_current_builder_model_fallback_does_not_rewrite_run_analytics(self):
+        (self.directory / "status.txt").write_text(
+            "2026-10-19T10:00:00Z td-b001 round 1: implementer start\n"
+            "2026-10-19T10:00:00Z td-b002 round 1: reviewer start\n"
+        )
+        (self.directory / "state.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": 2,
+                    "tickets": [
+                        {
+                            "id": "td-b001",
+                            "column": "building",
+                            "running": True,
+                            "model": "lab/current",
+                        },
+                        {
+                            "id": "td-b002",
+                            "column": "reviewing",
+                            "running": True,
+                            "model": "lab/builder",
+                        },
+                    ],
+                }
+            )
+        )
+        snapshot = self.snapshot()
+        self.assertEqual([r["model"] for r in snapshot["runs"]], ["unknown", "unknown"])
+        queue = {row["ticket"]: row for row in snapshot["queue"]}
+        self.assertEqual(queue["td-b001"]["model"], "lab/current")
+        self.assertEqual(queue["td-b002"]["model"], "unknown")
+
+    def test_missing_history_or_state_is_reported_without_false_zero_success(self):
+        (self.directory / "status.txt").write_text("")
+        snapshot = self.snapshot()
+        self.assertTrue(snapshot["available"])
+        self.assertEqual(snapshot["runs"], [])
+        self.assertTrue(
+            any("run counts are unavailable" in warning for warning in snapshot["warnings"])
+        )
+        (self.directory / "status.txt").write_text("2026-10-19T10:00:00Z td-b001 build start\n")
+        (self.directory / "state.json").write_text("")
+        snapshot = self.snapshot()
+        self.assertTrue(snapshot["available"])
+        self.assertEqual(snapshot["queue"], [])
+        self.assertTrue(
+            any(
+                "queue and fallback points are unavailable" in warning
+                for warning in snapshot["warnings"]
+            )
+        )
+
     def test_malformed_records_and_unsupported_schema_are_safe(self):
         (self.directory / "state.json").write_text('{"schema_version":100,"tickets":[]}')
         with (self.directory / "status.txt").open("a") as file:
@@ -347,6 +399,16 @@ class RunsTests(unittest.TestCase):
         self.assertEqual(len(s["queue"]), 0)
         self.assertEqual(s["runs"][-1]["model"], "unknown")
         self.assertTrue(s["warnings"])
+
+    def test_unsupported_start_formats_warn_without_inventing_runs(self):
+        with (self.directory / "status.txt").open("a") as file:
+            file.write("2026-10-19T13:00:00Z legacy-subject old-job start\n")
+        snapshot = self.snapshot()
+        self.assertEqual(len(snapshot["runs"]), 10)
+        self.assertIn(
+            "Some older event formats cannot be classified; only recognized recorded runs are counted.",
+            snapshot["warnings"],
+        )
 
 
 if __name__ == "__main__":

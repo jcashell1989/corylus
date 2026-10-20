@@ -227,6 +227,14 @@ class RunsStore:
     def _snapshot(self, reader: _Reader, snapshot: dict, now: datetime, warnings: set[str]) -> dict:
         status_text, status_mtime = reader.read("status.txt", MAX_STATUS)
         state_text, _ = reader.read("state.json")
+        if not status_text:
+            warnings.add(
+                "Loop5 event history is missing, empty, unreadable, or oversized; run counts are unavailable."
+            )
+        if not state_text:
+            warnings.add(
+                "Loop5 state is missing, empty, or unreadable; queue and fallback points are unavailable."
+            )
         if not status_text and not state_text:
             snapshot["message"] = (
                 "Loop5 status and state files are missing, unreadable, or exceed the read limit."
@@ -281,6 +289,7 @@ class RunsStore:
         pending: dict[tuple[str, str], dict] = {}
         lane_events: dict[str, list] = defaultdict(list)
         round_builds: dict[tuple[str, str], dict] = {}
+        unsupported_events = False
 
         def create(
             ticket: str,
@@ -397,6 +406,13 @@ class RunsStore:
                             at,
                             "failed" if message.startswith(ticket + " DIED:") else "unknown",
                         )
+            elif re.search(r"\bstart(?:$| \()|\b(?:FINISHED|FAILED) \(exit \d+\)", message):
+                unsupported_events = True
+
+        if unsupported_events:
+            warnings.add(
+                "Some older event formats cannot be classified; only recognized recorded runs are counted."
+            )
 
         # Files are consulted only for explicit facts (provider model/error/verdict), never returned.
         file_cache: dict[str, tuple[str, datetime | None]] = {}
@@ -631,7 +647,7 @@ class RunsStore:
                     "ticket": ticket,
                     "label": active["label"] if active else _identifier(record.get("phase")),
                     "model": active["model"]
-                    if active
+                    if active and active["model"] != "unknown"
                     else _identifier(record.get("model"), model=True)
                     if expected_kind == "build"
                     else "unknown",

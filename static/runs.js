@@ -39,6 +39,7 @@
       heading.append(lane.finished ? node('span', 'All jobs finished', 'state') : badge(run?.state || lane.state)); card.append(heading);
       if (run) {
         card.append(node('p', jobName(run), 'job'), node('p', jobDetail(run), 'job-meta'));
+        if (lane.finished) { const finalState = node('p', undefined, 'state-note'); finalState.append(badge(run.state)); card.append(finalState); }
         const list = node('dl');
         addTime(list, 'Started', date(run.start_time));
         const seconds = Model.duration(run);

@@ -21,6 +21,36 @@ const fixture = [
   run('11', 'td-eta', 'judge', 'model-b', 'finished', 3, null, { points: null, verdict: 'APPROVE', builder_model: null }),
   { id: '12', ticket: 'td-older', kind: 'build', model: 'model-a', state: 'unknown', points: null }
 ];
+test('every model summary and point-outcome number matches the fixture hand count', () => {
+  const result = model.analyze(fixture, { window: '24h', now: NOW });
+  assert.deepEqual(result.models.map(row => [row.model, row.total,
+    row.durationCount, row.medianSeconds, row.p90Seconds,
+    row.normalizedBuilds, row.medianMinutesPerPoint]), [
+    ['model-a', 6, 2, 1200, 1800, 2, 10],
+    ['model-b', 3, 2, 300, 360, 0, null],
+    ['unknown', 1, 0, null, null, 0, null]
+  ]);
+  const keys = ['finished', 'timed_out', 'waiting_budget', 'failed', 'other'];
+  assert.deepEqual(result.byPoints.map(row => [row.model, row.points, row.total,
+    keys.map(key => row.counts[key]), keys.map(key => row.rates[key])]), [
+    ['model-a', 0, 1, [0, 0, 0, 0, 1], [0, 0, 0, 0, 1]],
+    ['model-a', 2, 2, [2, 0, 0, 0, 0], [1, 0, 0, 0, 0]],
+    ['model-a', 5, 2, [0, 1, 1, 0, 0], [0, 0.5, 0.5, 0, 0]],
+    ['model-a', null, 1, [0, 0, 0, 1, 0], [0, 0, 0, 1, 0]],
+    ['model-b', 2, 2, [2, 0, 0, 0, 0], [1, 0, 0, 0, 0]],
+    ['model-b', null, 1, [1, 0, 0, 0, 0], [1, 0, 0, 0, 0]],
+    ['unknown', null, 1, [0, 0, 0, 0, 1], [0, 0, 0, 0, 1]]
+  ]);
+});
+
+test('finite window boundaries distinguish 24h, 7d and 30d exactly', () => {
+  const records = [24, 168, 720, 721].map(hours =>
+    run(String(hours), 'td-window', 'build', 'model-a', 'finished', hours, 1));
+  assert.deepEqual(model.analyze(records, { window: '24h', now: NOW }).selected.map(row => row.id), ['24']);
+  assert.deepEqual(model.analyze(records, { window: '7d', now: NOW }).selected.map(row => row.id), ['24', '168']);
+  assert.deepEqual(model.analyze(records, { window: '30d', now: NOW }).selected.map(row => row.id), ['24', '168', '720']);
+  assert.equal(model.analyze(records, { window: 'all', now: NOW }).selected.length, 4);
+});
 test('hand counts, median, nearest-rank p90 and unknown attribution', () => {
   const result = model.analyze(fixture, { window: '24h', now: NOW });
   assert.equal(result.selected.length, 10);
