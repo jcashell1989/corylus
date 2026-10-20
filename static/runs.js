@@ -3,13 +3,15 @@
   const Model = window.RunsModel;
   const $ = id => document.getElementById(id);
   let snapshot = null, refreshing = false, refreshFailed = false;
-  const stateLabels = { running: 'Running', waiting_budget: 'Waiting on gateway budget', timed_out: 'Timed out', finished: 'Finished', failed: 'Failed or died', skipped: 'Skipped', unknown: 'Unknown' };
+  const stateLabels = { running: 'Running', stale: 'Stale · outcome unknown', queued: 'Queued', held: 'Held', waiting_budget: 'Waiting on gateway budget', timed_out: 'Timed out', finished: 'Finished', failed: 'Failed or died', skipped: 'Skipped', unknown: 'Unknown' };
   function node(tag, text, className) { const item = document.createElement(tag); if (text !== undefined) item.textContent = String(text); if (className) item.className = className; return item; }
   function unknown(value) { return value === null || value === undefined || value === '' ? 'unknown' : String(value); }
   function date(value) { const time = Model.timestamp(value); return Number.isFinite(time) ? new Date(time).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', timeZoneName: 'short' }) : 'unknown'; }
   function elapsed(seconds) { if (!Number.isFinite(seconds) || seconds < 0) return 'unknown'; if (seconds < 60) return `${Math.floor(seconds)}s`; if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${Math.floor(seconds % 60)}s`; return `${Math.floor(seconds / 3600)}h ${Math.floor(seconds % 3600 / 60)}m`; }
   function since(value) { const time = Model.timestamp(value); return Number.isFinite(time) ? elapsed((Date.now() - time) / 1000) : 'unknown'; }
-  function active(run) { return ['running', 'waiting_budget'].includes(run.state); }
+  function liveState(run) { return run.live_state || run.state; }
+  function active(run) { return ['running', 'waiting_budget'].includes(liveState(run)); }
+  function unfinished(run) { return active(run) || (liveState(run) === 'stale' && !run.end_time); }
   function minutes(seconds) { return seconds === null ? 'unknown' : `${(seconds / 60).toFixed(1)} min`; }
   function points(value) { return value === null ? 'unpointed' : String(value); }
   function badge(state) { return node('span', stateLabels[state] || 'Unknown', `state ${Object.hasOwn(stateLabels, state) ? state : 'unknown'}`); }
@@ -36,32 +38,34 @@
       const card = node('article', undefined, 'lane'), heading = node('div', undefined, 'lane-header');
       heading.append(node('h3', unknown(lane.id)));
       const run = runs.get(lane.current_run_id);
-      heading.append(lane.finished ? node('span', 'All jobs finished', 'state') : badge(run?.state || lane.state)); card.append(heading);
+      heading.append(lane.finished ? node('span', 'All jobs finished', 'state') : badge(lane.state || (run && liveState(run)))); card.append(heading);
       if (run) {
         card.append(node('p', jobName(run), 'job'), node('p', jobDetail(run), 'job-meta'));
         if (lane.finished) { const finalState = node('p', undefined, 'state-note'); finalState.append(badge(run.state)); card.append(finalState); }
         const list = node('dl');
         addTime(list, 'Started', date(run.start_time));
         const seconds = Model.duration(run);
-        addTime(list, 'Elapsed', active(run) ? since(run.start_time) : seconds === null ? 'unknown' : elapsed(seconds), active(run) ? { kind: 'elapsed', timestamp: run.start_time } : null);
+        addTime(list, liveState(run) === 'stale' ? run.end_time ? 'Attempt duration' : 'Since start' : 'Elapsed', unfinished(run) ? since(run.start_time) : seconds === null ? 'unknown' : elapsed(seconds), unfinished(run) ? { kind: 'elapsed', timestamp: run.start_time } : null);
         addTime(list, 'Since activity', since(run.last_activity), { kind: 'activity', timestamp: run.last_activity });
         addTime(list, 'Current points', points(Model.pointsOf(run)));
-        if (run.state === 'waiting_budget') addTime(list, 'Next retry', date(run.next_retry));
+        if (liveState(run) === 'waiting_budget') addTime(list, 'Next retry', date(run.next_retry));
         card.append(list);
       } else card.append(node('p', lane.finished ? 'Every listed job has completed.' : 'No current run recorded.', 'muted'));
       const next = node('p', undefined, 'next'); next.append(node('strong', 'Next queued job'));
       next.append(node('span', lane.next_job ? `${jobName(lane.next_job)} · ${jobDetail(lane.next_job)}` : lane.finished ? 'None — lane complete' : 'None recorded')); card.append(next); target.append(card);
     });
     if (!(snapshot.lanes || []).length) target.append(node('p', 'No serial-runner lanes recorded.', 'empty'));
-    $('queue-count').textContent = `${(snapshot.queue || []).length} active tickets`;
-    table('queue', ['Ticket / job', 'Kind / model', 'State', 'Started', 'Elapsed', 'Since activity', 'Next retry', 'Current points'], (snapshot.queue || []).map(job => {
+    const queue = snapshot.queue || [], activeCount = queue.filter(active).length, staleCount = queue.filter(job => liveState(job) === 'stale').length;
+    $('queue-count').textContent = `${queue.length} recorded tickets · ${activeCount} active · ${staleCount} stale`;
+    table('queue', ['Ticket / job', 'Kind / model', 'State', 'Started', 'Elapsed / duration', 'Since activity', 'Next retry', 'Current points'], queue.map(job => {
       const label = node('div', jobName(job));
       const meta = node('div', jobDetail(job));
       const started = date(job.start_time), seconds = Model.duration(job);
-      const age = node('span', active(job) ? since(job.start_time) : seconds === null ? 'unknown' : elapsed(seconds)); if (active(job)) { age.dataset.clock = 'elapsed'; age.dataset.timestamp = job.start_time || ''; }
+      const age = node('span', unfinished(job) ? since(job.start_time) : seconds === null ? 'unknown' : elapsed(seconds)); if (unfinished(job)) { age.dataset.clock = 'elapsed'; age.dataset.timestamp = job.start_time || ''; }
+      const timing = node('div'); timing.append(age); if (liveState(job) === 'stale') timing.append(node('div', job.end_time ? 'Attempt duration' : 'Since start', 'subtext'));
       const activity = node('span', since(job.last_activity)); activity.dataset.clock = 'activity'; activity.dataset.timestamp = job.last_activity || '';
-      return [label, meta, badge(job.state), started, age, activity, job.state === 'waiting_budget' ? date(job.next_retry) : '—', points(Model.pointsOf(job))];
-    }), 'No active loop5 queue tickets recorded.');
+      return [label, meta, badge(liveState(job)), started, timing, activity, liveState(job) === 'waiting_budget' ? date(job.next_retry) : '—', points(Model.pointsOf(job))];
+    }), 'No loop5 queue tickets recorded.');
   }
   function currentOptions() { return { window: $('window').value, points: { mode: $('points-mode').value, value: $('points-value').value, min: $('points-min').value, max: $('points-max').value } }; }
   function renderAnalytics() {
@@ -84,6 +88,7 @@
     const messages = [snapshot.available === false ? snapshot.message || 'Loop5 state directory is unavailable.' : '', ...(snapshot.warnings || [])].filter(Boolean);
     $('messages').hidden = !messages.length; $('messages').textContent = messages.join(' ');
     $('updated').textContent = `Last source refresh: ${date(snapshot.refreshed_at)}`;
+    $('freshness').textContent = snapshot.freshness_note || 'Stale means no recent activity; its outcome is unknown.';
     renderLive(); renderAnalytics();
   }
   async function refresh() {

@@ -36,6 +36,7 @@ ROUND_VERDICT = re.compile(
 )
 MAX_FILE = 8 * 1024 * 1024
 MAX_STATUS = 32 * 1024 * 1024
+STALE_AFTER_SECONDS = 3600
 
 
 def _identifier(value: object, *, model: bool = False) -> str:
@@ -100,9 +101,28 @@ class _Reader:
             if not stat.S_ISREG(info.st_mode):
                 return "", None
             if info.st_size > limit:
-                self.warnings.add(
-                    "A source file exceeds the read limit; observations may be incomplete."
+                name = parts[-1]
+                safe_name = (
+                    name
+                    if name in ("status.txt", "state.json")
+                    or (
+                        re.fullmatch(rf"{TICKET}\.[A-Za-z0-9_.-]+\.(?:log|out|md)", name)
+                        and _identifier(
+                            name.removesuffix(".log")
+                            .removesuffix(".out")
+                            .removesuffix(".md")
+                            .split(".", 1)[1]
+                        )
+                        != "unknown"
+                    )
+                    else "source"
                 )
+                impact = (
+                    "event history is unavailable"
+                    if relative == "status.txt"
+                    else "only its beginning and end are read; middle observations may be missing"
+                )
+                self.warnings.add(f"{safe_name} exceeds the read limit; {impact}.")
                 if relative == "status.txt":
                     return "", None
                 # Both ends retain provider metadata and terminal errors, without unbounded reads.
@@ -210,6 +230,8 @@ class RunsStore:
             "warnings": [],
             "cost": "not reported",
             "points_note": "Uses the ticket's current points; points may change after a run.",
+            "stale_after_seconds": STALE_AFTER_SECONDS,
+            "freshness_note": "Running observations without activity for one hour are stale; their outcome is unknown.",
         }
         if self.directory is None:
             return snapshot
@@ -428,6 +450,7 @@ class RunsStore:
             return bool(mtime and (not start or mtime >= start - timedelta(seconds=2)))
 
         latest = {(r["ticket"], r["label"]): r for r in runs}
+        latest_queue = {r["ticket"]: r for r in runs if r["source"] == "queue"}
         for run in runs:
             ticket, label = run["ticket"], run["label"]
             if label == "unknown":
@@ -442,9 +465,20 @@ class RunsStore:
                 f"{ticket}.{label}.log",
                 f"{ticket}.{label}.md.log",
             ]
-            roles, roles_mtime = read(f"sessions/omp-{ticket}-{label}/roles.yml")
+            roles_path = (
+                f"sessions/{ticket}/roles.yml"
+                if run["source"] == "queue" and run["kind"] == "build"
+                else f"sessions/omp-{ticket}-{label}/roles.yml"
+            )
+            roles, roles_mtime = read(roles_path)
             role = re.search(r"(?m)^\s{1,8}default:\s*([^\s#]+)", roles)
-            if role and fresh(run, roles_mtime):
+            end = _time(run["end_time"])
+            role_in_attempt = (
+                run["source"] != "queue"
+                or bool(roles_mtime and end and roles_mtime <= end + timedelta(seconds=2))
+                or (not end and latest_queue.get(ticket) is run)
+            )
+            if role and fresh(run, roles_mtime) and role_in_attempt:
                 run["model"] = _identifier(role[1], model=True)
             verdict_texts = []
             diagnostic_texts = []
@@ -489,7 +523,11 @@ class RunsStore:
                     if run["source"] == "queue"
                     else f"sessions/omp-{ticket}-{label}"
                 )
-                session_activity = reader.latest_activity(session_path)
+                session_activity = (
+                    reader.latest_activity(session_path)
+                    if run["source"] != "queue" or latest_queue.get(ticket) is run
+                    else None
+                )
                 if session_activity and (not activity or session_activity > activity):
                     activity = min(session_activity, now)
                 if activity:
@@ -511,13 +549,32 @@ class RunsStore:
             if verdicts and run["kind"] == "judge" and run["end_time"]:
                 run["verdict"] = verdicts[-1]
 
-        lanes = []
+        def is_stale(activity: str | None) -> bool:
+            at = _time(activity)
+            return not at or (now - at).total_seconds() > STALE_AFTER_SECONDS
+
+        for run in runs:
+            if run["state"] == "running" and is_stale(run["last_activity"]):
+                run["state"] = "stale"
+            run["live_state"] = run["state"]
+            retry = _time(run["next_retry"])
+            if (
+                run["state"] == "waiting_budget"
+                and is_stale(run["last_activity"])
+                and (not retry or retry <= now)
+            ):
+                # Preserve the recorded budget outcome for analytics while
+                # declining to present an ancient pause as currently active.
+                run["live_state"] = "stale"
+
+        # JOBS may have any basename. Attribute it using recorded serial events,
+        # not a filename suffix; canonical copies collapse by parsed job identity.
+        files = {}
         for filename in reader.names("serial"):
-            if not re.fullmatch(r"(?:lane\d+|jobs)\.txt", filename):
+            if not filename.endswith(".txt") or _identifier(filename) == "unknown":
                 continue
-            lane = filename[:-4] if filename != "jobs.txt" else "serial"
-            jobs_text, _ = reader.read(f"serial/{filename}")
-            jobs = []
+            jobs_text, mtime = reader.read(f"serial/{filename}")
+            lines = []
             for line in jobs_text.splitlines():
                 if not line.strip() or line.lstrip().startswith("#"):
                     continue
@@ -525,11 +582,78 @@ class RunsStore:
                     fields = shlex.split(line)
                 except ValueError:
                     continue
-                if len(fields) < 3 or not re.fullmatch(TICKET, fields[1]):
-                    continue
+                if (
+                    len(fields) >= 3
+                    and fields[0] in ("build", "review", "codex", "wait")
+                    and re.fullmatch(TICKET, fields[1])
+                ):
+                    lines.append(fields)
+            if not lines:
+                continue
+            # Paths are used only for identity comparisons; never returned.
+            key = tuple(tuple(fields) for fields in lines)
+            if key in files:
+                files[key]["names"].append(filename)
+                if mtime and (not files[key]["mtime"] or mtime < files[key]["mtime"]):
+                    files[key]["mtime"] = mtime
+                continue
+            files[key] = {"names": [filename], "lines": lines, "mtime": mtime}
+        lane_sources = {}
+        unattributed = []
+        for source in files.values():
+            evidence = []
+            for fields in source["lines"]:
                 kind, ticket, label = fields[:3]
-                if kind not in ("build", "review", "codex", "wait"):
+                label = "review" if kind == "review" else label
+                for lane, observations in lane_events.items():
+                    for at, _, message in observations:
+                        if re.match(
+                            rf"^{re.escape(ticket)} {re.escape(label)}(?:-s\d+)?(?: |$)", message
+                        ):
+                            evidence.append((at, lane))
+            possible = {lane for _, lane in evidence}
+            if len(possible) == 1:
+                lane = possible.pop()
+                rank = max(at for at, _ in evidence)
+            elif not possible:
+                canonical = {
+                    name[:-4] if name != "jobs.txt" else "serial"
+                    for name in source["names"]
+                    if re.fullmatch(r"(?:lane\d+|jobs)\.txt", name)
+                }
+                if len(canonical) == 1:
+                    lane = canonical.pop()
+                    rank = datetime.min.replace(tzinfo=UTC)
+                else:
+                    unattributed.append(source)
                     continue
+            else:
+                warnings.add(
+                    "A serial job list matches multiple lanes; its lane attribution is ambiguous."
+                )
+                unattributed.append(source)
+                continue
+            if lane in lane_sources:
+                warnings.add(
+                    "Multiple serial job lists match one lane; configuration is selected only by newer recorded job evidence."
+                )
+            if lane not in lane_sources or rank > lane_sources[lane][0]:
+                lane_sources[lane] = (rank, source)
+            elif rank == lane_sources[lane][0]:
+                lane_sources[lane][1]["ambiguous"] = True
+                warnings.add(
+                    "Serial job lists have equal lane evidence but conflicting configuration; next job and configured models are unknown."
+                )
+        for index, source in enumerate(unattributed, 1):
+            lane_sources[f"unassigned-{index}"] = (None, source)
+            warnings.add(
+                "A serial job list has no unique recorded lane; it is shown as unassigned, not live."
+            )
+        lanes = []
+        for lane, (_, source) in sorted(lane_sources.items()):
+            jobs = []
+            for fields in source["lines"]:
+                kind, ticket, label = fields[:3]
                 if kind == "review":
                     label = "review"
                 job = {
@@ -544,12 +668,17 @@ class RunsStore:
                     else "unknown",
                     "model": _identifier(fields[3], model=True)
                     if kind == "codex" and len(fields) > 3
+                    else _identifier(fields[5], model=True)
+                    if kind == "build" and len(fields) > 5
+                    else _identifier(fields[4], model=True)
+                    if kind == "review" and len(fields) > 4
                     else "unknown",
                 }
                 candidates = [
                     r
                     for r in runs
                     if r["ticket"] == ticket
+                    and (r["lane"] is None or r["lane"] == lane)
                     and (
                         r["label"] == label
                         or (
@@ -558,9 +687,24 @@ class RunsStore:
                         )
                     )
                 ]
+                if lane.startswith("unassigned-"):
+                    candidates = []
                 job["run_ids"] = [r["id"] for r in candidates]
                 for run in candidates:
+                    if run["lane"] and run["lane"] != lane:
+                        continue
                     run["lane"] = lane
+                    # A mutable job list supplies a missing model only when its
+                    # configuration predates this latest observed label attempt.
+                    start = _time(run["start_time"])
+                    predates_start = bool(start and source["mtime"] and source["mtime"] <= start)
+                    if (
+                        predates_start
+                        and not source.get("ambiguous")
+                        and run["model"] == "unknown"
+                        and latest[(ticket, run["label"])] is run
+                    ):
+                        run["model"] = job["model"]
                     if job["kind"] != "unknown":
                         run["kind"] = job["kind"]
                 # A judge directly following a build in the lane records its association.
@@ -584,14 +728,38 @@ class RunsStore:
                             run["builder_run_id"] = builders[-1]["id"]
                 jobs.append(job)
             observations = lane_events.get(lane, [])
-            # The latest lane invocation supersedes older all-done messages.
-            finished = bool(observations and observations[-1][2] == "all jobs done")
+            # A lane's old completion cannot complete a replacement job list.
+            # Each selected job needs attempt evidence within that invocation.
+            invocation = next(
+                (at for at, _, message in reversed(observations) if message.startswith("start (")),
+                None,
+            )
+            completion = (
+                observations[-1][0]
+                if observations and observations[-1][2] == "all jobs done"
+                else None
+            )
+            finished = bool(
+                completion
+                and not source.get("ambiguous")
+                and all(
+                    any(
+                        r["id"] in job["run_ids"]
+                        and r["lane"] == lane
+                        and (end := _time(r["end_time"]))
+                        and end <= completion
+                        and (not invocation or end >= invocation)
+                        for r in runs
+                    )
+                    for job in jobs
+                )
+            )
             current_run = None
             next_job = None
             for index, job in enumerate(jobs):
                 candidates = [r for r in runs if r["id"] in job["run_ids"]]
                 last = candidates[-1] if candidates else None
-                if last and last["state"] in ("running", "waiting_budget"):
+                if last and last["state"] in ("running", "waiting_budget", "stale"):
                     # A later attempt/job is stronger evidence than a stale budget pause.
                     later_started = any(j["run_ids"] for j in jobs[index + 1 :])
                     if not later_started and not finished:
@@ -602,8 +770,11 @@ class RunsStore:
                     next_job = job
                     break
             if current_run is None:
-                observed = [r for r in runs if r["lane"] == lane]
+                configured_ids = {run_id for job in jobs for run_id in job["run_ids"]}
+                observed = [r for r in runs if r["lane"] == lane and r["id"] in configured_ids]
                 current_run = observed[-1] if observed else None
+            if source.get("ambiguous"):
+                next_job = None
             # Completed failed attempts remain budget outcomes in analytics even once retried.
             lanes.append(
                 {
@@ -613,10 +784,13 @@ class RunsStore:
                     if next_job
                     else None,
                     "finished": finished,
-                    "job_count": len(jobs),
-                    "state": "finished"
+                    "job_count": None if source.get("ambiguous") else len(jobs),
+                    "configuration_ambiguous": bool(source.get("ambiguous")),
+                    "state": "unknown"
+                    if lane.startswith("unassigned-")
+                    else "finished"
                     if finished
-                    else current_run["state"]
+                    else current_run["live_state"]
                     if current_run
                     else "unknown",
                 }
@@ -640,10 +814,36 @@ class RunsStore:
             # Columns describe ticket workflow and can still say building during
             # a one-off judge. Explicit latest job evidence supplies its identity
             # and timing, including a terminal job before state catches up.
-            active = ticket_runs[-1] if ticket_runs else None
-            kind = active["kind"] if active else expected_kind
             start = _time(record.get("start_time"))
             activity = _time(record.get("last_event_time"))
+            pending_queue = column in ("queued", "held")
+            # A new chain's recorded start bounds its attempt evidence. Queued
+            # tickets are a future invocation even if an older run exists.
+            eligible = [
+                r
+                for r in ticket_runs
+                if not start
+                or (_time(r["start_time"]) or datetime.min.replace(tzinfo=UTC)) >= start
+            ]
+            active = eligible[-1] if eligible and not pending_queue else None
+            kind = active["kind"] if active else expected_kind
+            row_state = (
+                active["live_state"]
+                if active
+                else column
+                if pending_queue
+                else "running"
+                if record.get("running")
+                else "unknown"
+            )
+            if (
+                not pending_queue
+                and not active
+                and (is_stale(_iso(activity)) or not record.get("running"))
+            ):
+                row_state = "stale"
+            if pending_queue:
+                start = activity = None
             queue.append(
                 {
                     "ticket": ticket,
@@ -651,14 +851,13 @@ class RunsStore:
                     "model": active["model"]
                     if active and active["model"] != "unknown"
                     else _identifier(record.get("model"), model=True)
-                    if kind == "build"
+                    if pending_queue
+                    or (kind == "build" and (not active or active["source"] == "queue"))
                     else "unknown",
                     "kind": kind,
-                    "state": active["state"]
-                    if active
-                    else "running"
-                    if record.get("running")
-                    else "unknown",
+                    "state": row_state,
+                    "end_time": active["end_time"] if active else None,
+                    "duration_seconds": active["duration_seconds"] if active else None,
                     "start_time": active["start_time"] if active else _iso(start),
                     "last_activity": active["last_activity"] if active else _iso(activity),
                     "next_retry": active["next_retry"] if active else None,

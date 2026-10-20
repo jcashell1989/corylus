@@ -3,4 +3,6 @@
 @media(max-width:850px){.app-header{align-items:flex-start}.refresh{align-items:flex-end;flex-direction:column}.section-heading{align-items:flex-start;flex-direction:column;gap:5px}.analytics-grid{grid-template-columns:1fr;gap:0}}@media(max-width:550px){.app-header{padding:18px}.app-header h1{font-size:25px}main{padding:0 18px 25px}.refresh{max-width:140px;font-size:11px}.lanes{grid-template-columns:1fr}.filters{gap:10px}.filters label{flex:1;min-width:130px}.filters input{width:100%}.section-heading p{max-width:100%}}
 /* Let wide analytics tables scroll inside their grid cell at narrow widths. */
 .analytics-grid{grid-template-columns:minmax(0,1fr) minmax(0,1.2fr)}.analytics-grid>div{min-width:0}.table-scroll{max-width:100%;min-width:0}
+.state.stale{border-style:dashed;color:var(--muted)}
+.section-heading>h2{flex-shrink:0}
 @media(max-width:850px){.analytics-grid{grid-template-columns:minmax(0,1fr)}}
