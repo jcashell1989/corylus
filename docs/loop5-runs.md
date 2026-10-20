@@ -25,7 +25,7 @@ service restart, ingress change, runner control or writes to loop5 sources.
   event without its start remains visible with an unknown start and duration.
 - Outcomes come from recorded events and terminal provider diagnostics. A past
   budget-blocked attempt remains in the budget count after a later retry starts.
-  Skipped, running and unknown outcomes are counted under **other**.
+  Skipped, running, stale and unknown outcomes are counted under **other**.
 - Finite windows use the recorded start, or the recorded end for a run with no
   start. Undated records appear only in all history. Future records are excluded.
 - Finished duration summaries require a recorded start and end. Median averages
@@ -50,11 +50,33 @@ service restart, ingress change, runner control or writes to loop5 sources.
   its positive points. Outcome rates use all selected recorded runs for each
   model and point value, including other outcomes in their denominators.
 
-**Running** means a start with no recorded end; activity age helps identify quiet
-runs. This page does not probe process liveness. A scheduled retry is shown only
-where its delay is recorded. Expired retry times remain visible as observations,
-not promises that a worker will restart. Older unsupported formats remain
-unknown; missing events are never reconstructed.
+**Running** means a start with no recorded end and observed activity within the
+last hour. After one hour without activity, it becomes **stale**, with unknown
+outcome. Stale does not invent an end time or completed duration. The displayed
+since-start and activity clocks remain available. This page does not probe process
+liveness. Queue rows lacking a current run also become stale when their own event
+activity is old or their recorded running flag is false. A scheduled retry is
+shown only where its delay is recorded. A budget wait with no activity for an hour becomes
+stale in the live view once its retry time is absent or past. Its recorded budget
+outcome remains in analytics. Expired retry times are observations, not promises
+that a worker will restart. Older unsupported formats remain unknown; missing
+events are never reconstructed.
+
+Serial discovery reads valid job lists in `serial/*.txt`, including noncanonical
+basenames. Identical parsed lists collapse into one source. Recorded serial job
+events associate lists with lanes; canonical names supply a fallback. Unassigned
+lists remain visible without claiming a live lane. Conflicting configurations
+with equal evidence suppress the next job and configured-model fallback. The viewer never
+reads process environments to infer a missing job-file mapping. Build field six
+and review field five supply optional configured models; unknown historical
+models are filled only when the list can be attributed to that attempt.
+
+Schema-2 queue chains retain explicit round labels, models and timing. Builders
+read their shared queue session roles only within the applicable attempt; judges
+never inherit that builder identity. Queued and held entries have distinct states
+and do not borrow a previous invocation's job or elapsed time. The count separates
+recorded rows, observed active rows and stale rows.
+
 Unsupported start/terminal event formats produce a warning and are excluded
 rather than reconstructed as runs. The totals describe recognized td-ticket
 run records, not an inventory of every artifact in the state directory.
@@ -70,7 +92,10 @@ bounded status, state, lane, metadata, diagnostic and final-result files, return
 only structured observations. Prompts, outputs, transcripts, raw event messages,
 credentials and full private paths never appear in the API. Public identifiers
 reject credential-like and token-shaped values. Source failures use fixed,
-path-free messages. Source-size limits produce incomplete-data warnings.
+path-free messages. Source-size warnings name only validated public basenames
+where safe and explain the missing coverage: oversized event history is excluded;
+other oversized files retain only their beginning and end. Middle observations
+may be missing. No raw diagnostic text appears in a warning.
 
 Reads are coalesced in a five-second cache. Points reads use bounded `td list`
 commands against the project allowlist; they do not invoke `td export`.

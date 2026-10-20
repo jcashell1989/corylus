@@ -169,7 +169,7 @@ class RunsTests(unittest.TestCase):
         self.assertTrue(lanes["lane1"]["finished"])
         self.assertTrue(lanes["lane3"]["finished"])
         self.assertIsNotNone(lanes["lane3"]["current_run_id"])
-        self.assertEqual(lanes["lane2"]["state"], "waiting_budget")
+        self.assertEqual(lanes["lane2"]["state"], "stale")
         self.assertEqual(lanes["lane2"]["next_job"]["kind"], "judge")
         current = next(r for r in s["runs"] if r["id"] == lanes["lane2"]["current_run_id"])
         self.assertEqual(current["next_retry"], "2026-10-19T10:18:00+00:00")
@@ -339,12 +339,9 @@ class RunsTests(unittest.TestCase):
             with self.subTest(final=final):
                 first = "REJECT" if final == "APPROVE" else "APPROVE"
                 (self.directory / "td-a001.judge-r1.out").write_text(
-                    f"VERDICT: {first} synthetic earlier assessment\n"
-                    f"VERDICT: {final} abc1234\n"
+                    f"VERDICT: {first} synthetic earlier assessment\nVERDICT: {final} abc1234\n"
                 )
-                judge = next(
-                    r for r in self.snapshot()["runs"] if r["label"] == "judge-r1"
-                )
+                judge = next(r for r in self.snapshot()["runs"] if r["label"] == "judge-r1")
                 self.assertEqual(judge["verdict"], final)
 
     def test_verdict_word_boundaries_and_sources_remain_strict(self):
@@ -358,12 +355,9 @@ class RunsTests(unittest.TestCase):
             with self.subTest(text=text[:60]):
                 (self.directory / "td-a001.judge-r1.out").write_text(text)
                 (self.directory / "td-a001.judge-r1.out.log").write_text(
-                    "OpenAI Codex v0.0\nmodel: lab/sage\nuser\n"
-                    "VERDICT: APPROVE abc1234\n"
+                    "OpenAI Codex v0.0\nmodel: lab/sage\nuser\nVERDICT: APPROVE abc1234\n"
                 )
-                judge = next(
-                    r for r in self.snapshot()["runs"] if r["label"] == "judge-r1"
-                )
+                judge = next(r for r in self.snapshot()["runs"] if r["label"] == "judge-r1")
                 self.assertIsNone(judge["verdict"])
 
     def test_latest_oneoff_judge_overrides_stale_building_column(self):
@@ -397,7 +391,13 @@ class RunsTests(unittest.TestCase):
         judge = snapshot["runs"][-1]
         row = snapshot["queue"][0]
         for field in [
-            "label", "kind", "model", "state", "start_time", "last_activity", "next_retry"
+            "label",
+            "kind",
+            "model",
+            "state",
+            "start_time",
+            "last_activity",
+            "next_retry",
         ]:
             self.assertEqual(row[field], judge[field], field)
         self.assertEqual(row["current_run_id"], judge["id"])
@@ -481,6 +481,288 @@ class RunsTests(unittest.TestCase):
         queue = {row["ticket"]: row for row in snapshot["queue"]}
         self.assertEqual(queue["td-b001"]["model"], "lab/current")
         self.assertEqual(queue["td-b002"]["model"], "unknown")
+
+    def test_noncanonical_job_files_models_and_copies(self):
+        (self.directory / "serial").mkdir(exist_ok=True)
+        for path in (self.directory / "serial").glob("*.txt"):
+            path.unlink()
+        (self.directory / "status.txt").write_text(
+            "2026-10-19T10:00:00Z td-b001 custom-s1 start\n"
+            "2026-10-19T10:01:00Z serial lane7 td-b001 custom-s1 done\n"
+        )
+        jobs = "build td-b001 custom /private/root /private/prompt lab/new-builder\nreview td-b001 /private/guide - lab/new-judge\n"
+        (self.directory / "serial/night-jobs.txt").write_text(jobs)
+        (self.directory / "serial/lane7.txt").write_text(jobs)
+        os.utime(self.directory / "serial/night-jobs.txt", (1, 1))
+        snapshot = self.snapshot()
+        self.assertEqual(len(snapshot["lanes"]), 1)
+        lane = snapshot["lanes"][0]
+        self.assertEqual(lane["id"], "lane7")
+        self.assertEqual(snapshot["runs"][0]["model"], "lab/new-builder")
+        self.assertEqual(lane["next_job"]["model"], "lab/new-judge")
+
+    def test_noncanonical_without_copy_and_unassigned_lists_are_visible(self):
+        for path in (self.directory / "serial").glob("*.txt"):
+            path.unlink()
+        (self.directory / "status.txt").write_text(
+            "2020-01-01T10:00:00Z td-b001 custom-s1 start\n"
+            "2020-01-01T10:01:00Z serial lane7 td-b001 custom-s1 done\n"
+        )
+        (self.directory / "serial/night-jobs.txt").write_text(
+            "build td-b001 custom /private/root /private/prompt lab/configured\n"
+        )
+        (self.directory / "serial/future.txt").write_text(
+            "build td-b002 future /private/root /private/prompt lab/future\n"
+        )
+        snapshot = self.snapshot()
+        lanes = {lane["id"]: lane for lane in snapshot["lanes"]}
+        self.assertEqual(set(lanes), {"lane7", "unassigned-1"})
+        self.assertEqual(lanes["unassigned-1"]["state"], "unknown")
+        self.assertIsNone(lanes["unassigned-1"]["current_run_id"])
+        self.assertEqual(lanes["unassigned-1"]["next_job"]["model"], "lab/future")
+        # A configuration written after the run cannot rewrite historical model.
+        self.assertEqual(snapshot["runs"][0]["model"], "unknown")
+
+    def test_ambiguous_job_list_cannot_assign_or_duplicate_lane_runs(self):
+        for path in (self.directory / "serial").glob("*.txt"):
+            path.unlink()
+        (self.directory / "status.txt").write_text(
+            "2020-01-01T10:00:00Z td-b001 custom-s1 start\n"
+            "2020-01-01T10:01:00Z serial lane1 td-b001 custom-s1 done\n"
+            "2020-01-01T10:02:00Z td-b001 custom-s2 start\n"
+            "2020-01-01T10:03:00Z serial lane2 td-b001 custom-s2 done\n"
+        )
+        (self.directory / "serial/mixed.txt").write_text(
+            "build td-b001 custom /private/root /private/prompt lab/configured\n"
+        )
+        snapshot = self.snapshot()
+        self.assertEqual([r["lane"] for r in snapshot["runs"]], ["lane1", "lane2"])
+        self.assertEqual(snapshot["lanes"][0]["state"], "unknown")
+        self.assertIsNone(snapshot["lanes"][0]["current_run_id"])
+        self.assertTrue(any("ambiguous" in w for w in snapshot["warnings"]))
+
+    def test_old_lane_completion_cannot_finish_replacement_jobs(self):
+        for path in (self.directory / "serial").glob("*.txt"):
+            path.unlink()
+        (self.directory / "status.txt").write_text(
+            "2020-01-01T10:00:00Z td-b001 old start\n"
+            "2020-01-01T10:01:00Z td-b001 old FINISHED (exit 0)\n"
+            "2020-01-01T10:01:00Z serial lane1 td-b001 old done\n"
+            "2020-01-01T10:02:00Z serial lane1 all jobs done\n"
+        )
+        (self.directory / "serial/lane1.txt").write_text(
+            "build td-b002 future /private/root /private/prompt lab/future\n"
+        )
+        lane = self.snapshot()["lanes"][0]
+        self.assertFalse(lane["finished"])
+        self.assertIsNone(lane["current_run_id"])
+        self.assertEqual(lane["next_job"]["ticket"], "td-b002")
+        self.assertEqual(lane["state"], "unknown")
+
+    def test_equal_lane_evidence_does_not_guess_future_jobs_or_models(self):
+        for path in (self.directory / "serial").glob("*.txt"):
+            path.unlink()
+        (self.directory / "status.txt").write_text(
+            "2020-01-01T10:00:00Z td-b001 custom start\n"
+            "2020-01-01T10:01:00Z serial lane1 td-b001 custom done\n"
+        )
+        for name, model, following in [("a", "lab/a", "td-b002"), ("z", "lab/z", "td-b003")]:
+            path = self.directory / f"serial/{name}.txt"
+            path.write_text(
+                f"build td-b001 custom /private/root /private/prompt {model}\n"
+                f"review {following} /private/guide - lab/judge\n"
+            )
+            os.utime(path, (1, 1))
+        snapshot = self.snapshot()
+        lane = snapshot["lanes"][0]
+        self.assertTrue(lane["configuration_ambiguous"])
+        self.assertIsNone(lane["next_job"])
+        self.assertIsNone(lane["job_count"])
+        self.assertEqual(snapshot["runs"][0]["model"], "unknown")
+        self.assertTrue(any("conflicting configuration" in w for w in snapshot["warnings"]))
+
+    def test_shared_queue_roles_do_not_rewrite_previous_round(self):
+        (self.directory / "status.txt").write_text(
+            "2020-01-01T10:00:00Z td-b001 round 1: implementer start\n"
+            "2020-01-01T10:01:00Z td-b001 round 1: implementer done; reviewer start\n"
+            "2020-01-01T10:02:00Z td-b001 round 1: VERDICT: REJECT\n"
+            "2020-01-01T10:03:00Z td-b001 round 2: implementer start\n"
+        )
+        session = self.directory / "sessions/td-b001"
+        session.mkdir(parents=True)
+        (session / "roles.yml").write_text("modelRoles:\n  default: lab/new-round\n")
+        runs = self.snapshot()["runs"]
+        self.assertEqual(runs[0]["model"], "unknown")
+        self.assertEqual(runs[-1]["model"], "lab/new-round")
+
+    def test_oversize_warning_identifies_allowlisted_source_and_impact(self):
+        from loop5_runs import _Reader
+
+        warnings = set()
+        path = self.directory / "td-b001.large.out.log"
+        path.write_text(
+            "OpenAI Codex v0.0\nmodel: lab/header\n" + "x" * 500 + "\nError: Deadline exceeded\n"
+        )
+        reader = _Reader(self.directory, warnings)
+        try:
+            text, _ = reader.read(path.name, 100)
+        finally:
+            reader.close()
+        self.assertLess(len(text), 102)
+        self.assertTrue(any("td-b001.large.out.log" in w and "middle" in w for w in warnings))
+        self.assertNotIn(str(self.directory), " ".join(warnings))
+
+    def test_budget_outcome_survives_expired_live_observation(self):
+        from datetime import UTC, datetime, timedelta
+
+        old = datetime.now(UTC) - timedelta(hours=2)
+        (self.directory / "status.txt").write_text(
+            f"{old.isoformat()} td-b001 build-s1 start\n"
+            f"{old.isoformat()} td-b001 build-s1 FAILED (exit 1)\n"
+            f"{old.isoformat()} serial lane7 td-b001 build-s1 hit gateway budget; waiting 15m before retry\n"
+            f"{old.isoformat()} td-b002 build-s1 start\n"
+            f"{old.isoformat()} td-b002 build-s1 FAILED (exit 1)\n"
+            f"{old.isoformat()} serial lane8 td-b002 build-s1 hit gateway budget; waiting 240m before retry\n"
+        )
+        for lane, ticket in [("lane7", "td-b001"), ("lane8", "td-b002")]:
+            (self.directory / f"serial/{lane}.txt").write_text(
+                f"build {ticket} build /private/root /private/prompt\n"
+            )
+        (self.directory / "state.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": 2,
+                    "tickets": [
+                        {"id": t, "column": "building", "running": False}
+                        for t in ["td-b001", "td-b002"]
+                    ],
+                }
+            )
+        )
+        snapshot = self.snapshot()
+        runs = {r["ticket"]: r for r in snapshot["runs"]}
+        self.assertEqual(runs["td-b001"]["state"], "waiting_budget")
+        self.assertEqual(runs["td-b001"]["live_state"], "stale")
+        self.assertEqual(runs["td-b002"]["live_state"], "waiting_budget")
+        queue = {q["ticket"]: q for q in snapshot["queue"]}
+        lanes = {lane["id"]: lane for lane in snapshot["lanes"]}
+        self.assertEqual(queue["td-b001"]["state"], "stale")
+        self.assertEqual(queue["td-b002"]["state"], "waiting_budget")
+        self.assertEqual(lanes["lane7"]["state"], "stale")
+        self.assertEqual(lanes["lane8"]["state"], "waiting_budget")
+
+    def test_stale_running_has_no_invented_finish(self):
+        (self.directory / "status.txt").write_text("2020-01-01T10:00:00Z td-b001 custom start\n")
+        run = self.snapshot()["runs"][0]
+        self.assertEqual(run["state"], "stale")
+        self.assertEqual(run["last_activity"], "2020-01-01T10:00:00+00:00")
+        self.assertIsNone(run["end_time"])
+        self.assertIsNone(run["duration_seconds"])
+
+    def test_queue_current_round_and_pending_do_not_borrow_historical_oneoff(self):
+        from datetime import UTC, datetime
+
+        at = datetime.now(UTC).isoformat()
+        (self.directory / "status.txt").write_text(
+            "2020-01-01T10:00:00Z td-b001 old start\n"
+            "2020-01-01T10:01:00Z td-b001 old FINISHED (exit 0)\n"
+            f"{at} td-b001 round 1: implementer start\n"
+        )
+        (self.directory / "state.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": 2,
+                    "tickets": [
+                        {
+                            "id": "td-b001",
+                            "column": "building",
+                            "running": True,
+                            "start_time": at,
+                            "last_event_time": at,
+                            "model": "lab/current",
+                        },
+                        {
+                            "id": "td-b002",
+                            "column": "queued",
+                            "running": False,
+                            "model": "lab/next",
+                            "last_event_time": "2020-01-01T10:00:00Z",
+                        },
+                        {
+                            "id": "td-b003",
+                            "column": "reviewing",
+                            "running": False,
+                            "last_event_time": "2020-01-01T10:00:00Z",
+                        },
+                    ],
+                }
+            )
+        )
+        snapshot = self.snapshot()
+        queue = {q["ticket"]: q for q in snapshot["queue"]}
+        self.assertEqual(queue["td-b001"]["label"], "impl.r1")
+        self.assertEqual(queue["td-b001"]["model"], "lab/current")
+        self.assertEqual(queue["td-b001"]["state"], "running")
+        self.assertEqual(queue["td-b002"]["state"], "queued")
+        self.assertEqual(queue["td-b002"]["model"], "lab/next")
+        self.assertEqual(queue["td-b003"]["state"], "stale")
+
+    def test_new_chain_start_does_not_borrow_prior_oneoff(self):
+        from datetime import UTC, datetime
+
+        at = datetime.now(UTC).isoformat()
+        (self.directory / "status.txt").write_text(
+            "2020-01-01T10:00:00Z td-b001 old start\n"
+            "2020-01-01T10:01:00Z td-b001 old FINISHED (exit 0)\n"
+        )
+        (self.directory / "state.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": 2,
+                    "tickets": [
+                        {
+                            "id": "td-b001",
+                            "column": "building",
+                            "running": True,
+                            "start_time": at,
+                            "last_event_time": at,
+                            "model": "lab/new-chain",
+                        }
+                    ],
+                }
+            )
+        )
+        row = self.snapshot()["queue"][0]
+        self.assertIsNone(row["current_run_id"])
+        self.assertEqual(row["start_time"], at)
+        self.assertEqual(row["state"], "running")
+        self.assertEqual(row["model"], "lab/new-chain")
+
+    def test_new_queue_does_not_borrow_prior_run(self):
+        (self.directory / "status.txt").write_text(
+            "2020-01-01T10:00:00Z td-b001 old start\n"
+            "2020-01-01T10:01:00Z td-b001 old FINISHED (exit 0)\n"
+        )
+        (self.directory / "state.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": 2,
+                    "tickets": [
+                        {
+                            "id": "td-b001",
+                            "column": "queued",
+                            "start_time": "2020-01-01T10:00:00Z",
+                            "model": "lab/next",
+                            "running": False,
+                        }
+                    ],
+                }
+            )
+        )
+        row = self.snapshot()["queue"][0]
+        self.assertEqual(row["state"], "queued")
+        self.assertIsNone(row["current_run_id"])
+        self.assertIsNone(row["start_time"])
 
     def test_missing_history_or_state_is_reported_without_false_zero_success(self):
         (self.directory / "status.txt").write_text("")

@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import sys
 import tempfile
 import threading
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from playwright.sync_api import expect, sync_playwright
@@ -131,6 +133,93 @@ def check(base, server, source, screenshots, chromium):
         page.unroute("**/api/runs")
         page.locator("#refresh").click()
         expect(page.locator("#messages")).to_be_hidden()
+        with tempfile.TemporaryDirectory(prefix="corylus-live-runs-browser-") as directory:
+            live_source = Path(directory)
+            (live_source / "serial").mkdir()
+            jobs = live_source / "serial/lane7.txt"
+            jobs.write_text(
+                "build td-c001 deploy /private/root /private/prompt lab/serial\n"
+            )
+            os.utime(jobs, (1, 1))  # Configuration existed before the recorded run.
+            (live_source / "serial/lane8.txt").write_text(
+                "build td-c005 build /private/root /private/prompt lab/budget\n"
+            )
+            started = (datetime.now(UTC) - timedelta(minutes=5)).isoformat()
+            old = "2020-01-01T10:00:00+00:00"
+            (live_source / "status.txt").write_text(
+                f"{old} td-c001 deploy start\n"
+                f"{started} td-c002 round 2: implementer start\n"
+                f"{old} td-c005 build start\n"
+                "2020-01-01T10:01:00+00:00 serial lane8 td-c005 build "
+                "hit gateway budget; waiting 15m before retry\n"
+            )
+            (live_source / "state.json").write_text(json.dumps({
+                "schema_version": 2, "tickets": [
+                    {"id": "td-c001", "column": "building", "running": True,
+                     "start_time": old, "last_event_time": old},
+                    {"id": "td-c002", "column": "building", "running": True,
+                     "start_time": started, "last_event_time": started,
+                     "model": "lab/queue"},
+                    {"id": "td-c003", "column": "queued", "running": False},
+                    {"id": "td-c004", "column": "held", "running": False},
+                    {"id": "td-c005", "column": "building", "running": True,
+                     "start_time": old, "last_event_time": old},
+                ]
+            }))
+            server.runs_store = RunsStore(live_source)
+            page.locator("#refresh").click()
+            expect(page.locator(".lane")).to_have_count(2)
+            lane = page.locator(".lane").filter(
+                has=page.get_by_role("heading", name="lane7", exact=True)
+            )
+            expect(lane).to_contain_text("Stale · outcome unknown")
+            expect(lane).to_contain_text("build · lab/serial")
+            expect(lane).to_contain_text("Since start")
+            expect(page.locator("#freshness")).to_contain_text("one hour")
+            assert lane.locator('[data-clock="elapsed"]').get_attribute("data-timestamp") == old
+            expect(page.locator("#queue-count")).to_have_text(
+                "5 recorded tickets · 1 active · 2 stale"
+            )
+            current = page.locator("#queue tbody tr").filter(has_text="td-c002")
+            expect(current).to_contain_text("impl.r2")
+            expect(current).to_contain_text("build · lab/queue")
+            expect(current.locator(".state")).to_have_text("Running")
+            assert current.locator('[data-clock="elapsed"]').get_attribute(
+                "data-timestamp"
+            ) == started
+            assert all(value != "unknown" for value in current.locator("td").all_text_contents()[3:6])
+            for ticket, state in (("td-c001", "Stale · outcome unknown"),
+                                  ("td-c003", "Queued"), ("td-c004", "Held"),
+                                  ("td-c005", "Stale · outcome unknown")):
+                row = page.locator("#queue tbody tr").filter(has_text=ticket)
+                expect(row.locator(".state")).to_have_text(state)
+            snapshot = page.request.get(base + "/api/runs").json()
+            stale = next(run for run in snapshot["runs"] if run["ticket"] == "td-c001")
+            assert stale["end_time"] is None
+            assert stale["duration_seconds"] is None
+            budget = next(run for run in snapshot["runs"] if run["ticket"] == "td-c005")
+            assert budget["state"] == "waiting_budget"
+            assert budget["live_state"] == "stale"
+            assert budget["duration_seconds"] == 60
+            budget_lane = page.locator(".lane").filter(
+                has=page.get_by_role("heading", name="lane8", exact=True)
+            )
+            expect(budget_lane).to_contain_text("Stale · outcome unknown")
+            expect(budget_lane.locator('dt:has-text("Attempt duration") + dd')).to_have_text("1m 0s")
+            expect(budget_lane.locator('[data-clock="elapsed"]')).to_have_count(0)
+            budget_row = page.locator("#queue tbody tr").filter(has_text="td-c005")
+            expect(budget_row.locator("td").nth(4)).to_contain_text("Attempt duration")
+            expect(budget_row.locator("td").nth(4).locator("span")).to_have_text("1m 0s")
+            expect(budget_row.locator('[data-clock="elapsed"]')).to_have_count(0)
+            analysis = page.evaluate(
+                "runs => RunsModel.analyze(runs, {window: 'all'})", snapshot["runs"]
+            )
+            assert sum(row["counts"]["waiting_budget"] for row in analysis["models"]) == 1
+            page.screenshot(path=str(screenshots / "loop5-runs-live-fixture.png"), full_page=True)
+            page.set_viewport_size({"width": 390, "height": 844})
+            assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+            page.set_viewport_size({"width": 1600, "height": 1100})
+            print("PASS stale serial/budget state and duration, live queue round and queued/held counts")
         server.runs_store = RunsStore(source / "missing")
         page.locator("#refresh").click()
         expect(page.locator("#messages")).to_contain_text("missing or unreadable")
