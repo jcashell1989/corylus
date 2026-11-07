@@ -18,16 +18,29 @@ Fast, reliable human judgment over everything the machines ship.
 
 ## Why
 
-Lately, I've found myself in a loop: writing tickets, having agents perform them, 
-then having another agent rip it apart before I judge it for myself. It's a 
-useful pattern for producing somewhat pressure-tested code, but I started to get 
+Lately, I've found myself in a loop: writing tickets, having agents perform them,
+then having another agent rip it apart before I judge it for myself. It's a
+useful pattern for producing somewhat pressure-tested code, but I started to get
 tired of triggering review skills and manually telling the agent to keep going.
 
-So I automated myself out of it. 
+So I automated myself out of it.
 
-## What
+## Current direction
 
-Corylus sits in between three services:
+Written by an AI agent: **Codex (GPT-6)**, on Julian's behalf, November 7, 2026.
+Julian's approved simplification decision **td-48a9a4** makes Corylus one public
+runner and agent-management tool replacing loop5 and Rings. The current
+[runner plan](docs/runner-design.md), [ontology](docs/runner-ontology.md) and
+[ticket reconciliation](docs/plan-revision-2026-11-07.md) describe that scope.
+The first release proves one real unattended ticket with bounded work, relevant
+checks, independent exact-head review and authorized merge. Optional modules,
+formal proofs and full legacy feature parity are not release prerequisites.
+Conversation, steering and parallel-worker acceptance remain later open outcomes.
+This documentation records the plan, not an implemented or accepted replacement.
+
+## Existing legacy application
+
+The existing implementation described below sits between three services:
 
 1. Hermes Agent as an agent runtime
 2. Vikunja as a project-tracking service
@@ -46,7 +59,7 @@ graph LR
 
 Cronjobs in the Hermes runtime trigger on a reasonable schedule, the agent picks
 up a ticket based on priority and urgency ranking. Once it's done, a separate judge
-agent reads its work and gives a verdict with a confidence score (a SWAG rn). Then I 
+agent reads its work and gives a verdict with a confidence score (a SWAG rn). Then I
 take a look and determine whether to approve, send it back, discard, etc.
 
 ## Experience
@@ -101,7 +114,7 @@ sections, and time windows live in the query string via `history.pushState`
 — reloads, pasted URLs, and back/forward all re-apply exactly, and unknown
 parameters fall back to defaults.
 
-```
+```text
 ?view=review&task=52        the review pane for task 52
 ?view=blocked&blocked=8     the blocked list, row 8 expanded
 ```
