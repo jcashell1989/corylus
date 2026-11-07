@@ -1,90 +1,81 @@
-# Corylus runner: a harness-agnostic build and review loop
+# Corylus runner: one ordinary ticket workflow
 
-**Design proposal, revised for review.** Owner: Julian. Date: 2026-10-08 (US Pacific).
-Written by an AI agent (Codex (GPT-6.1 Sol)), revising the original Claude Code draft.
-Julian must approve this design before any build ticket starts. This document authorizes no implementation, deployment or merge.
+Written by an AI agent: **Codex (GPT-6)**, on Julian's behalf. Revised November 7,
+2026, under **td-e59184**, applying Julian's approved decision **td-48a9a4**.
 
-The [runner ontology](runner-ontology.md) records the agreed 2026-10-09 entity,
-session, run-purpose and per-ticket event model. It supersedes the earlier
-attempt/session grouping where they differ; the transition guards below remain
-the workflow contract.
+This is the current plan. All 13 simplification cuts are accepted. It supersedes
+the October Python-runner build slices, repair entitlements, routing/proof gates
+and optional-module release prerequisites. It records approved scope, not an
+implemented runner, source migration, deployment or workflow acceptance.
+The [plan and ticket dispositions](plan-revision-2026-11-07.md) identify retained
+owners; the [ontology](runner-ontology.md) defines the shared terms.
 
-## 0. The one-paragraph version
+## Product and first delivery
 
-Corylus is the control layer for an automated agentic work pipeline: agents build, an independent agent judges, Julian decides. Its proposed headless runner takes a tracker ticket through build, verification, review and bounded remediation. It supports any harness in either role through configuration, maintains durable state, and keeps a persistent queue scheduler watching for work without an orchestrator staying online. Each ticket workflow and each worker, reviewer or job run finishes independently; the scheduler remains available for later arrivals. Automatic merge after independent approval is the default, guarded by the exact reviewed SHA; pipelines such as design review can require human acceptance and manual merge. There are two roles, **worker** and **reviewer**, plus **job mode** for bounded runbook work. The engine and tests are public; installation settings stay private. The first Corylus lane runs one ticket at a time.
+Corylus is one public runner and agent-management tool replacing loop5 and Rings.
+Reuse the accepted Go adapters and goal loop where their contracts fit. Keep the
+working Python UI and the chosen Graph/Table/Board experience. Component names
+describe responsibilities; they do not require separate services or new storage.
 
-## 1. Background and inputs
+The first delivery completes one real authorized ticket unattended: admitted
+brief, retained harness sessions, finite work, relevant checks, independent
+exact-head review, eligible tracker approval and authorized atomic merge.
+Restart, cancellation and uncertain effects need actual evidence. A provider
+failure, human rescue or fixture-only demonstration is not this acceptance.
 
-This revision draws on these sources, summarized without installation identifiers:
+One command entry point is enough initially. Full conversation, steering and
+parallel-worker workflows remain later intended outcomes until demonstrated and
+accepted. A successful first ticket does not claim those outcomes delivered.
+Old runners remain recoverable until the replacement is accepted and cutover is
+authorized. No service retirement or data deletion is authorized by this plan.
 
-- **Julian's decisions, 2026-10-08**, recorded in `td-a8a0af` and its revision brief: configurable harnesses in both roles; TOML; different sessions by default; the same model warns rather than refuses; two roles plus job mode; a serial Corylus lane; automatic merge by default; no initial spend caps. The 2026-10-08 acceptance of the §12 defaults and job authorization option 2 is recorded in §12 and on `td-3830f9`. The queue-persistence clarification supersedes drain-to-exit for the scheduler; individual runs still exit after their work.
-- **Tracker approval constraint**, supplied in the same brief: the session that created or worked a ticket cannot approve it. The approval command must execute in the reviewer's eligible tracker session or an independent closer job. Naming the reviewer in a command issued by the orchestrator is insufficient.
-- **Shell-loop operational report, 2026-10-07–08**, supplied in the revision brief: the incidents in §1.1. These are reported observations, not newly reproduced incidents.
-- **Typesafe/Jev research summary**, supplied in the revision brief: a cheap structured-judgment API, best called from harness code with fixed packets rather than exposed as a model tool. This motivates an optional plug-in (§4.5), not a verified integration or quality claim. The previous revision reported the detailed source unavailable; this design uses the supplied summary.
-- **Corylus [README](../README.md)** and the companion *Ticket-Centered Work Sessions* design (v2.1, `docs/ticket-centered-sessions.md` on branch `docs/ticket-centered-sessions`): Ticket → Attempt → Session grouping, evidence and event-driven state. The companion is a proposal on a separate branch; its historical tracker references do not supersede td.
+## One owner per operation
 
-Today's shell loop renders a ticket guide, launches a worker in a worktree, checks finishing evidence, launches a fresh reviewer, then remediates a rejection or stops for a decision. A merge requires the reviewed SHA. Monitoring, queue filling, notifications and runbook jobs were added around that loop. The runner brings those responsibilities into tested interfaces.
-
-The 2026-10-08 loop5 follow-up in `td-cb6a7f` supplies the lessons in §1.2. Its named README/scripts reference was unavailable in this revision's checkout; these remain ticket-reported observations, not independently verified script behavior. Renaming the runner to loop5 is separate work (`td-14f2b1`); this revision changes no names.
-
-### 1.1 Operational lessons and design implications
-
-| Reported incident | Design implication |
+| Operation | Retained owner and boundary |
 |---|---|
-| Editing a live script dropped its executable bit; launch failed silently and no start event appeared | Install immutable releases; preflight executability; persist launch intent, enforce a start deadline and emit `run.launch_failed` (§4.1, §5). |
-| A verdict regex missed `NEEDS-DECISION` | Parse the complete final-line enum; malformed or conflicting verdicts cannot approve (§3.2). |
-| Workers launched in the main checkout and edited it | Engine-owned worktrees; check actual launch cwd; prohibit main-checkout execution (§4.4). |
-| A detached watcher never notified | Durable event subscriptions with delivery receipts and retries; attachment to a terminal is irrelevant (§6). |
-| A monitor ignored deaths and hangs until rebuilt | Monitor process identity and progress on every tick; test death, idle and wall deadlines (§6, §9). |
-| A queue runner with a slot cap was needed to keep work moving without the orchestrator | A persistent scheduler owns queue filling and monitoring, including arrivals after an empty queue; durable queue and lane caps survive restart (§6). |
-| Draft PRs blocked merges | Read draft state directly; only mark ready after authorization and review gates (§4.3). |
-| Forge search lag temporarily hid new PRs | Prefer recorded PR IDs and exact head-branch lookup; bounded retries; an API error is not “no PR” (§4.3). |
-| A service's config changed but its daemon never reloaded it (resolver incident) | For authorized service jobs, gate backup → change → reload → verify as the service user; restore and reload on failed verification (§4.5). |
-| Reviews, waiver handling and deployment jobs required manual recovery | Explicit review, decision, resume and job commands; persist evidence before each action (§7). |
-| A manual/no-merge lane finished at review approval but was reported as dead | Persist `finished_awaiting_human` as an invocation-terminal outcome; no merge event is expected (§5–6). |
-| Builder comparisons were anecdotal | Record per-attempt usage, duration and outcome; label missing cost data (§5.3). |
+| Goals, objectives, priorities and dependencies | td; software reads approved scope and current outcome evidence. |
+| Knowledge and planning decisions | Authorized Markdown/wiki sources; references rather than another authoritative copy. |
+| Harness invocation and bounded worker continuation | Accepted Go adapters and goal-loop implementation, reused where applicable. |
+| Workflow progress | The selected workflow engine, Argo where configured; no competing custom Python workflow scheduler, monitor or job-state engine. |
+| Admission and next-ticket choice | Deterministic software, using existing scheduler/workflow capabilities; no supervising model. |
+| Sessions and run evidence | Retained harness sessions and actual execution records. |
+| Command intent and uncertain effects | Durable scoped command receipts and reconciliation; workflow status alone is insufficient. |
+| Transport | NATS remains selected where interaction needs it; durably saved steps do not wait for immediate delivery. |
+| Checks | Applicable repository CI owns its authoritative result; workers can check locally for feedback. |
+| Source acceptance and merge | An independent eligible reviewer plus a fixed exact-reviewed-head merge operation. |
+| Deployment and recovery | The declared deployment owner outside the worker loop; Corylus submits or observes its result. |
+| Views and controls | Existing Graph/Table/Board and the shared authorized entry point, derived from owning records. |
+| Shared dollar budget | The configured gateway; Corylus records real usage, without another spending authority. |
 
-### 1.2 Lessons from loop5 (2026-10-08)
+Argo and NATS remain selected technologies. This plan neither substitutes them
+nor makes every integration a first-ticket prerequisite. Keep local command
+receipts even with Argo: a lost-node worker may still write. Reusing accepted
+source is not permission to move repositories or deploy it.
 
-| Lesson | Where it is handled | Added or already covered |
-|---|---|---|
-| 1. Draft PR must be ready before merge at the reviewed SHA | §4.3 Forge; readiness readback and atomic SHA guard | Already covered |
-| 2. Provider/budget failures must allow same-worktree fallback without burning remediation rounds | §4.1 Harness; §5.1 infrastructure hold and session-aware continuation | Added |
-| 3. Rerun with new findings/decisions and same-session resume | §3.1 Worker; §5.1 new-input continuation; §7 file input | Added |
-| 4. Decisions arriving mid-round need a boundary inbox or stop/restart | §4.2 Tracker; versioned decision inbox | Added |
-| 5. Reviewer must prove worktree HEAD equals reviewed SHA | §3.2 Reviewer; §4.4 Workspace; explicit HEAD receipt | Added to existing pinning contract |
-| 6. One-off closers, digests and external-agent PR remediation | §3.4 Job mode; §7 review-only entry and bounded follow-up | Added examples/entry contract; closer already covered |
-| 7. Operator commands must avoid shell command substitution | §4.1 Harness; §7 prompt/note files and stdin | Already covered |
-| 8. One persistent watcher must recognize every job kind | §6 Scheduler and monitor; kind-independent liveness | Added explicit job coverage; persistent owner already covered |
-| 9. Ticket-specific credential allowances name exact private paths | §8.3 Public versus private; scoped allowance | Added |
-| 10. Run-labelled gateway requests and aggregate budget/usage reporting | §5.3 Results; request correlation and run totals | Added |
-| 11. Acceptance must identify the current phase and completion boundary | §4.5 Gates; phase-scoped acceptance contract | Added |
+## Work, sessions and review
 
-## 2. Goals, scope and non-functional requirements
+A ticket is one objective, with one owner and an outcome that can be accepted.
+Split work where outcomes are independently useful or need separate owners.
+Do not automatically create two component tickets and an integration-only third
+ticket. File allocations and point estimates can be suggestions, not acceptance
+requirements. Each retained owner delivers its integration checks too.
 
-Goals: configurable harnesses, independent review, headless operation, typed events, a public/private split and small build tickets. Preserve Corylus's chosen UI and ticket workflows; this proposal adds a runner backend, not a replacement interface.
+Use project-qualified ticket identity. A ticket can have several attempts,
+sessions, invocations and explicitly associated reviewed PRs. A fresh worker
+session starts an attempt; resuming preserves the actual session identity.
+Multiple PRs can serve one continuing objective. A genuinely new objective still
+needs a new ticket. There is no one-PR quota or mandatory new ticket for every
+post-merge source slice that continues the same objective.
 
-Non-goals: replacing td, distributing execution across hosts, automatic deployment, or requiring persistent agent contexts. Job mode can execute an explicitly authorized runbook; it does not turn code acceptance into deployment authorization. Legacy Hermes/Vikunja pipeline code is not the runner's foundation.
+Every source contributor is an author of that revision, regardless of worker,
+orchestrator or job label. Authorized contributors need no exceptional final-edit
+phase. Review sessions remain read-only and independent of every author and the
+ticket's creator/implementer identities. Preserve actual harness and tracker
+contexts; an attribution string or invented context is not independent approval.
+The same configured model can warn without making the same session independent.
 
-### Non-functional requirements
-
-- **Crash safety:** durably write the next state and action intent before acting. Record a receipt afterward. Failed persistence prevents the action.
-- **Idempotent restart:** reconcile unfinished actions against process, tracker and forge state before resuming. Never blindly relaunch, re-approve, re-merge or repeat a live job.
-- **Secret exclusion:** no secrets in events, logs, prompts retained by the runner or published text. Use allowlisted fields and scrub output before storage; reject unsafe output rather than persist it. Credentials stay in the harness/provider's private credential mechanism.
-- **Bounded runs:** every worker, reviewer and job has positive wall-clock, idle and launch timeouts. Cancel the process group, wait a bounded grace period, then kill and record the outcome. Harness output activity alone does not prove useful progress.
-- **Single ownership:** an invocation ownership lock plus ticket leases prevent duplicate execution. Gate, tracker, forge and notification calls also have finite deadlines and retries. Cancellation uses `limits.cancel_grace_seconds`; rollback has a separate `limits.rollback_timeout_seconds` so an expired ticket deadline cannot abandon restoration.
-
-## 3. Roles and contracts
-
-### 3.1 Worker
-
-Receives the live ticket, rendered rules/guide, prior findings and its worktree. Leaves committed, pushed work in the ticket's existing open PR, with verification evidence and a tracker review request. One open-or-merged PR belongs to a ticket; a second PR requires a new ticket, with closed superseded PRs retained as history. The engine verifies those facts independently. A finish nudge uses the configured budget (§8.2, default one per attempt), resuming the same session when supported; otherwise it starts a fresh worker session and therefore a new attempt with the persisted handoff. It remains the same round and carries consumed continuation budgets forward.
-
-An authorized rerun can supply a versioned findings packet (including an initial `r0` packet) with recorded orchestrator decisions. Preserve its provenance and the prior handoff; a note is input, not a waiver. Resume the same eligible harness/tracker session when supported, or supply the packet to a fresh session under the existing independence checks (§5.1, §7).
-
-### 3.2 Reviewer
-
-Receives the ticket, exact PR head, verification evidence, prior findings and a separate review worktree. It never receives private worker reasoning. Its final message ends with exactly one of:
+The reviewer verifies its separate clean worktree HEAD equals the requested full
+SHA before inspection and verdict. Its final unambiguous line is one of:
 
 ```text
 VERDICT: APPROVE
@@ -92,102 +83,157 @@ VERDICT: REJECT
 VERDICT: NEEDS-DECISION
 ```
 
-Allow one terminal newline; match the whole last line. Duplicate/conflicting verdict lines, malformed findings, an unknown enum or unsuccessful harness exit produce a failed review run, never approval. An optional fenced `findings` JSON block contains bounded entries using the [ontology's finding fields](runner-ontology.md#findings); repository-relative paths only. Every blocking finding includes Boolean `is_trivial`; trivial requires the reviewer's exact fix, one file, about 10 lines or fewer, no live/host/credential/deploy change, and tests or lint that can check it. Store the SHA and reviewer session with every verdict. A changed head invalidates it.
+Malformed/conflicting output or unsuccessful execution cannot approve. Findings
+state material blocking status, reason, evidence and needed resolution. No
+mandatory Boolean triviality field, ten-line rule or one-file repair category.
+Changed source invalidates affected checks and review, requiring independent
+review of the new head.
 
-Before inspection and again before recording a verdict, the reviewer verifies its actual worktree `HEAD` equals the requested reviewed SHA and that the tree is clean. Store that comparison with the verdict; a successful fetch alone proves neither fact (§4.4).
+## One finite repair policy
 
-`REJECT` enters `queued` for remediation while `pipeline.*.max_rounds` permits another round, otherwise `round_exhausted`. `NEEDS-DECISION` enters `needs_decision`; invalid output enters `failed` with a diagnostic. The cap and accounting defaults are decided in §12.
+Configure one repair limit and a finite overall work bound. All process launches
+also have positive launch, wall, idle and cancellation limits. The bound survives
+restart, resume, model override and fresh attempts. A changed session or model
+does not grant a new repair allowance.
 
-### 3.3 Independence, approval and waivers
+There are no separate finish-nudge or quickfix entitlements, per-rung round
+resets, durable quickfix exceptions or max-two rung-escalation machinery. Missing
+finish evidence and code findings use the same bounded continuation policy.
+Keep provider capacity, launch and reviewer failures distinct from code defects;
+they do not invent a code finding or permit unlimited retries. Unknown effects
+hold for reconciliation. Exhaustion reports the reason, evidence and next action.
 
-Each session has **two identities**: an opaque harness session reference for resume, and a tracker session ID for authorization. For td, give each fresh session its own `TD_CONTEXT_ID`, run `td usage --new-session` at context creation, and verify the resulting session with `td current`. Persist the context-to-session mapping; subsequent runs that resume this session reuse it without creating a new session. Supply that context only to the child and its tracker command executor; never switch the runner invocation's own session. An adapter must demonstrate isolated session propagation before supporting approval.
+Ordinary admission uses an approved capable default worker with explicit
+compatible overrides and evidence-based escalation within the same finite bound.
+Tracker estimates remain optional human metadata. No Fibonacci validation,
+five-rung mapping, routing-placement decision or predictor is required to run.
+Preserve requested/reported model and effort; unsupported capabilities hold rather
+than silently substituting. Model/account restrictions remain binding.
 
-The reviewer must differ from every worker or committing orchestrator harness session and from all ticket creator/implementer tracker sessions. Unknown, mismatched or ineligible identity at launch, during work or immediately before approval emits `identity.refused`; §5.1 cancels verified children and enters `needs_decision`, retaining the lease while child/effect safety is unknown. Service changes require restoration first. A definitive tracker refusal unrelated to identity enters `failed`. Profiles may use either role; the same normalized model in both roles emits `policy.warning` and stores `same_model: true`. It does not refuse review. The two loop roles remain worker and reviewer; session output types are `worker`, `review`, `orchestrator` and `job` as defined in the ontology. Direct-edit orchestrator commits are exceptional, allowed only during the final look before merge, and force gated independent re-review. `has_direct_edits` is derived from committing orchestrator sessions per attempt and ORed across the ticket's attempts; after merge even a one-line fix requires a new ticket.
+## Authority and acceptance
 
-Normal acceptance:
+Recorded authenticated scoped authority is reusable while its ticket, effect
+class and relevant revision remain valid. Routine read-only reporting requires
+no new effect permission. A fresh process or confirmed unexecuted launch does not
+require a newly formatted run/launch-bound permission note. Keep expiry,
+revocation and current scope checks where applicable. A new effect beyond the
+standing grant still needs approval; natural-language permission claims are not
+credentials. Never retry an uncertain effect just because a grant is valid.
 
-1. Reviewer finishes with APPROVE for SHA S. Persist the evidence, session IDs and verdict; this alone does not close td or merge.
-2. With a valid independent verdict, execute `td approve TICKET --reason REASON` **with the reviewer's persisted `TD_CONTEXT_ID`**, verifying `td current` still matches before acting. The reason references SHA S and review evidence. Human acceptance is required only by pipeline policy (for example design review); when required, record it before this command. Verify td's resulting status and reviewer-of-record; save a receipt. Never use the orchestrator's session, `--self-review`, or name-only `--reviewed-by` as a substitute.
-3. In the default automatic pipeline, independent approval authorizes the SHA-guarded merge (§4.3). A manual pipeline ends this invocation at `finished_awaiting_human` with no merge event; a later explicitly authorized resume can merge. A tracker approval, a merged PR and deployment acceptance are distinct facts. An unresolved draft/check failure or failed/uncertain merge enters `awaiting_merge`; a changed head enters `needs_decision` and invalidates acceptance.
+An eligible independent reviewer can perform authorized routine tracker approval
+in its actual context. A separate closer is not mandatory. When a scoped waiver
+needs an independent closer, reuse the standing authority and verify the current
+head, accepted scope and real eligibility. Recommendations and delivery receipts
+never impersonate human acceptance. Pipeline-required human decisions remain.
 
-Waiver flow: the reviewer records findings and recommends a specific waiver, ending NEEDS-DECISION. Julian may accept or change it; an explicitly delegated “orchestrator waiver” counts only when the ticket records that authority. Persist the decision, scope, author and SHA. An **independent closer job**, using an eligible tracker session, rereads the live ticket, accepted waiver, review and exact head, then records approval in its own session with that evidence. It is job mode, not another role. A recommendation alone cannot close a ticket. A waiver does not bypass session eligibility, secret rules or SHA checks. Code changes require a new review. Declined human acceptance enters `acceptance_declined` without tracker approval. An accepted waiver queues a closer continuation of the **same ticket**, with a linked job run and fresh eligible session; it does not create another ticket or approve directly. Pipeline-required human acceptance precedes closer approval as well. §5.1 defines both paths.
+Approval, source merge, deployment result and intended-workflow acceptance are
+distinct facts. Merge requires current independent acceptance, applicable checks,
+current authority and atomic enforcement of the full reviewed SHA. Changed heads
+invalidate acceptance. Lost approval or merge responses require result readback;
+missing evidence is not success. Manual pipelines retain their explicit merge
+authority and finished-awaiting-human outcome.
 
-Resume with a note does not itself approve or waive anything. Reviewers and closers must not create or implement the ticket they approve. td rejection is a policy stop, never a reason to retry under a fabricated identity. Where an installed td offers weaker trusted-mode shortcuts, the adapter still enforces this design's stricter boundary and validates supported commands at setup.
+Corylus contains no backup/change/reload/verify/rollback deployment engine,
+service-job state machine or deployment-purpose lock across all runner work.
+The declared deployment owner retains credentials, backups, recovery and actual
+verification. Reporting its result does not authorize deployment or replace its
+acceptance evidence.
 
-### 3.4 Job mode
+## Applicable check evidence
 
-One configured harness runs a bounded task without the build/review loop. It records authorization policy/evidence, effects, verification and a named workflow outcome. `job.finished` is a run event: standalone success enters `job_succeeded`; a closer returns to `approving`, not ticket completion. Authorization uses the §12 option-2 policy: a config capability allowance plus a ticket-scoped note; no per-run token. This choice does not weaken closer eligibility or the authorization required for service changes. A closer is one job kind; service runbooks are another. Success of a harness process alone is not success of the runbook. Post-merge jobs are disabled unless both pipeline policy and recorded authorization permit them.
+Use the authoritative required CI result for the exact head and relevant inputs.
+Do not repeat the same unchanged suite merely because another layer reached a
+check stage. Local worker checks remain useful feedback. Relevant changes to
+source, dependencies, configuration or environment require fresh applicable
+evidence. Missing, failing, stale or unknown required checks block acceptance.
 
-One-off kinds also include digests and authorized PR follow-up. Job sessions produce artifacts only, including reports, closer approval receipts and digests; they never produce source commits. A PR built outside the runner enters through `review`, with live ticket identities, the exact head and fresh required gate receipts; rejection uses the normal bounded worker remediation and fresh review. A job may request that continuation, but cannot replace its review/merge guards with a successful job exit.
+Project policy defines which checks apply, including a legitimate
+no-applicable-check outcome for a work class. This is distinct from passing a
+check, and does not require a new personal waiver for every head in that class.
+Keep command/result, revision, applicability and environment evidence sufficient
+to assess reuse. Optional judgment cannot replace these checks or independent
+review.
 
-## 4. Interfaces
+## Admission, durability and recovery
 
-Proposed code lives under `runner/`; none exists as a result of this design. Shared dataclasses in `runner/contracts.py` define requests, results, sessions, effects and gate packets. Adapters receive dependencies explicitly and can be tested with fakes.
+Software selects approved eligible work, evaluates dependencies, accounts for
+bounded continuation and releases dependents. No orchestrator model decides the
+routine next ticket. A source prerequisite requires confirmed reviewed merge;
+human/no-code gates use authenticated scoped current acceptance; verified jobs
+use their actual successful outcome. Never infer these from ticket type or closed
+status. Missing or ambiguous evidence holds visibly; unrelated work can proceed.
 
-### 4.1 Harness
+Persist scoped command intent before effects and observed receipts afterward.
+Reconcile unfinished commands against actual process, tracker and forge state
+before further admission. Retain actual stopped-writer evidence before releasing
+ownership or launching a replacement. An unreachable node, lease timeout, local
+receipt lock or workflow failure alone does not prove a writer stopped.
+Cancellation targets only verified process identities; uncertainty keeps the
+ownership hold. Preserve dirty work and existing recovery material.
 
-```python
-class Harness(Protocol):
-    def start(self, request: RunRequest) -> RunHandle: ...
-    def resume(self, request: RunRequest, prior: SessionRef) -> RunHandle: ...
-    def poll(self, handle: RunHandle) -> RunState: ...
-    def result(self, handle: RunHandle) -> RunResult: ...
-    def cancel(self, handle: RunHandle) -> None: ...
-```
+Reuse the chosen workflow/environment owner's scheduling, lifecycle, deadlines
+and supervision. Do not build another daemon per named layer. Failure/restart
+tests exercise real adapter boundaries; abstract workflow status is insufficient.
+Durable decisions survive notification outages, and unrelated eligible work does
+not depend on immediate transport delivery. No secrets enter retained logs,
+events, prompts, commits or published text.
 
-`RunRequest`: ticket, attempt, session, run/effect ID, session type (`worker`, `review`, `orchestrator`, `job`), purpose, round, prompt, cwd, profile/model, tracker context, output destination and limits. Purpose is open (`build`, `remediate`, `quickfix`, `nudge`, `resume`, `rebase`, `investigate`, `deploy`, `verify`, `review`, `re-review`, `other`); `other` requires a free-text reason. Only `quickfix` (all remaining blockers `is_trivial`), `deploy` (Julian approval, executes alone) and `investigate` (no commits) change loop behavior. Other purposes are descriptive; session output contracts and existing guards still apply. `RunHandle`: supervisor/child PIDs plus process start identities, launch receipt and session references. `RunState`: starting/running/exited/timed_out with last activity/progress. `RunResult`: exit, sanitized final message, both session identities, optional usage and artifact references.
+## Evidence, usage and projections
 
-The CLI adapter uses argv templates, never shell strings; prompts use stdin or a file. Preflight executable, cwd, placeholders and output permissions. Persist a claim before launch and a receipt afterward, keyed by effect ID. Confirmed start emits `run.started`; failure emits `run.launch_failed`. Reconcile an uncertain launch into `needs_decision`, never duplicate it. A confirmed absent child permits `pipeline.*.launch_retries`; exhaustion enters `failed` for worker/reviewer/closer or `job_failed` for a standalone job (§5.1).
+Start with outcome, reason, evidence and next action. Investigate repeated or
+consequential failures when it can improve the system. Unknown causes remain
+unknown. Do not require every rejection, pause or legitimate decision to produce
+cause classes, confidence, cheapest-earlier-control fields or correction lineage.
+Analysis and scoped retrieval use existing td, session, Markdown and wiki records;
+there is no new authoritative memory database.
 
-A per-run supervisor survives runner death, enforces wall/idle deadlines, stores sanitized progress/exit receipts and kills the child group at its limits. It exits with the run and cannot dispatch, approve or merge. The restarted scheduler or next one-shot invocation polls its durable handle; parent-only process waiting cannot adopt an orphan.
+Record available requested/reported model, effort, tokens, duration and genuinely
+metered cost. Deduplicate receipt identities across resume and rollups. Missing
+cost stays unavailable and partial coverage stays labeled. Subscription tokens
+do not imply dollar charges; the gateway owns its actual budget and metering.
+No required rung accounting or prediction research system.
 
-Harness-specific parsing covers session IDs, final output and progress signals. Resume capability is explicit; fresh-start fallback uses ticket evidence. A Python plug-in can implement an API harness. Configuration examples express the adapter contract, not verified CLI flag compatibility.
+Private authenticated views retain useful authorized links and paths, including
+configured forge destinations. Keep safe schemes, destination controls, escaping,
+access checks and secret exclusion. Public/exported projections strip private
+hosts, absolute installation paths, IP addresses and credentials. Public source
+and examples contain no private installation bindings. Do not expose raw logs or
+arbitrary destinations as a consequence of preserving useful private evidence.
 
-Classify explicit provider/budget failures (for example gateway `422 ExceededBudget` or rate-limit `429`) as infrastructure diagnostics, separate from worker rejection, crash or timeout. Once child exit and effect safety are established, save the continuation in `needs_decision` (§5.1). An authorized retry or configured-profile fallback (for example OMP to Codex) keeps the existing worktree and handoff; it consumes no remediation round, nudge or run-failure retry. The same worker session keeps its attempt; a fresh worker session starts a new attempt carrying the continuation and consumed budgets. Preserve any round already charged for a confirmed start; never refund it or count a continued start twice. No automatic retry loop or silent harness substitution: resolution records the selected profile, revalidates configuration and identities, and retains ticket deadlines. Changed service state still requires the existing rollback path before a job can continue.
+Keep the minimal transitional old-runner reader while needed. Show actual
+available history and explicit data gaps, never invented ranks, dates or success.
+Full old-runner telemetry, new producer instrumentation and every legacy screen
+are not migration prerequisites. Identify retained workflows, verify them and
+accept the archive of retired data before any separately authorized retirement.
 
-### 4.2 Tracker
+## Delivery order and later outcomes
 
-```python
-class Tracker(Protocol):
-    def get(self, ticket: str) -> Ticket: ...
-    def context(self, run_id: str, prior: TrackerSession | None) -> TrackerSession: ...
-    def log(self, ticket: str, message: str, actor: TrackerSession) -> Receipt: ...
-    def submit(self, ticket: str, actor: TrackerSession) -> Receipt: ...
-    def approve(self, request: ApprovalRequest, actor: TrackerSession) -> Receipt: ...
-```
+1. Reconcile ownership and shared contracts with accepted Go work.
+2. Deliver one bounded ordinary-ticket path through the existing execution owner,
+   independent exact-head acceptance, checks and effect recovery.
+3. Expose one control entry point and actionable evidence; verify relevant code
+   with failure/restart tests and applicable CI.
+4. Package a reviewed immutable release and obtain authority for a real low-risk
+   unattended ticket pilot. Keep the prior execution path recoverable.
+5. Present actual retained-workflow evidence and a concrete controlled cutover
+   proposal for Julian's acceptance. Hosting follows its separately recorded
+   platform decision and proof, not an assumed October placement.
 
-`Ticket` includes creator/implementer identities, review state and decisions. `ApprovalRequest` includes ticket, SHA, review reference, decision reference and effect ID. `approve` checks eligibility, executes in `actor`'s isolated context and reads back the recorded reviewer/status. On restart, inspect existing approval before repeating. Capability/schema errors enter `failed`. Tracker logs include stable effect IDs for reconciliation. Do not run `td export` or edit its scheduled export file.
+Advisory judgment, prediction experiments, deeper RCA, optional Executor,
+complete conversation bridges, extra templates/interfaces, aggregate meters,
+focused formal proofs and fleet expansion are not first-release prerequisites.
+Conversation, steering and parallel-worker acceptance remain open later outcomes
+where retained. Do not equate deferral with delivery or silently remove them.
 
-Maintain a decision inbox keyed by tracker log reference and monotonic input revision. At each worker/reviewer dispatch boundary, reread the live ticket, validate decision authority and freeze the consumed revision in the input packet and gate/verdict receipts. A mid-round decision remains pending; it is not assumed to reach a running agent. Before approval/merge, compare the live decision revision with that evidence: a scope-changing decision invalidates affected gates/verdicts and requires a new boundary. Urgent decisions use pause → verified quiescence → resume with the new packet (§5.1); never inject unrecorded instructions into a live run.
+## Historical formal-model reference: not current implementation scope
 
-### 4.3 Forge
-
-`Forge.find_pr(repo, branch, recorded_id)`, `head(pr)`, `mark_ready(pr)` and `merge(pr, expected_sha)` return typed results or explicit errors. Lookup uses recorded ID, then exact repository/head branch, then bounded search retries. A draft stays draft until independent approval and required checks permit readiness under automatic pipeline policy, or a recorded manual readiness decision permits it. An unresolved draft or failed required check enters `awaiting_merge`; record `pr.ready` after readiness and read it back before merging. Immediately before merge, reread the head and required checks; the merge API must enforce `expected_sha` atomically. A pre-call comparison alone is insufficient. Unsupported SHA enforcement enters `failed` without a merge call. Read back the merge receipt, including reviewed head and resulting merge SHA. Review and merge use only the expected PR; never pick a search result by title alone.
-
-### 4.4 Workspace
-
-`Workspace.ensure(ticket, repo, base, effect_id)` creates/reuses a dedicated feature branch and worktree; `Workspace.review(ticket, sha)` creates a separate checkout pinned to that SHA. Verify repository identity, branch and cwd before launch. Never switch the main checkout's branch or launch there. Preserve dirty work; uncertain ownership enters `needs_decision`. Review worktrees forbid source edits through adapter policy; any modification invalidates review. Cleanup is explicit, never an automatic destructive recovery step.
-
-Fetch the exact commit into a named ref or by explicit SHA, then check out and compare actual `HEAD` with that SHA in the review worktree. Do not rely on another worktree's `FETCH_HEAD`; its value can be stale or worktree-specific. Repeat the comparison when accepting the verdict (§3.2).
-
-### 4.5 Gates and optional judgment
-
-```python
-class Gate(Protocol):
-    name: str
-    def check(self, context: GateContext) -> GateResult: ...
-```
-
-`GateContext`: stage, ticket/attempt, repo/worktree, expected SHA, evidence references and sanitized progress packet. `GateResult`: pass/fail/error/advisory, bounded findings and verification receipts. A required deterministic gate error enters `failed`; missing check policy or required judgment availability enters `needs_decision`.
-
-For a multi-phase ticket, the authorized input packet names the current phase, its deliverables/checks, deferred phases and the completion boundary. Bind gate/verdict/acceptance receipts to that phase, input revision and SHA. Review only the agreed phase; a missing procedure is a decision request, not a code rejection. Passing an intermediate phase records phase acceptance without whole-ticket approval/closure or merge unless that boundary was explicitly authorized; use separately scoped phase tickets when td cannot represent the required partial acceptance. Subsequent phases need their own contract and review.
-
-- **Finish:** clean worktree, commit equals upstream head, expected open PR and complete handoff. Check discovery errors fail closed.
-- **Checks:** project-configured lint/tests for the changed scope, tied to that SHA. Record exact command, exit and bounded sanitized output. No applicable lint/test requires an explicit policy decision, never an invented pass. The shared `pipeline.*.finish_nudges` budget covers repairable finish/check failures; exhaustion enters `failed` before review. A recorded no-check exemption is scoped to the head and gate, then gating resumes.
-- **Service verification (jobs only):** require a backup receipt, authorized change/reload and checks under the actual service user after reload. Failure triggers restore plus reload and re-verification. Successful rollback enters `job_rolled_back`; failed rollback enters `job_rollback_failed` and alerts. Neither is job success. It is not part of every code ticket's finish gate.
-- **Optional Typesafe/Jev:** off by default. Harness-side runner code calls a fixed structured API packet at a build/review/closer suspected stall/loop or before review; service jobs use deterministic runbook gates. Packet: stage, elapsed time, progress counters, repeated-error hashes, gate summaries and bounded sanitized evidence; no credentials, private transcripts or arbitrary model-selected questions. Schema-validate a response such as `continue | flag_loop | flag_review_gap | needs_decision`, with reasons and confidence. Bound call duration, retries and frequency; provider and gateway budgets remain external. Record advisory evidence; it cannot approve, waive or replace deterministic checks or the reviewer. Default API failure records `unavailable` and retains normal gates/timeouts; an explicitly required policy enters `needs_decision` on failure. Flags enter `needs_decision` for inspection; `continue` retains the current state. The provider schema remains to be verified when that optional ticket is built.
-
-## 5. State, events and results
+The following October table is preserved solely so the existing optional Lean
+reference and source-row mapping remain reproducible. Its old Python phases,
+service/rollback flow, repair counters and launch-bound authorization rules are
+**superseded**, have no current normative force and are not build instructions.
+Current requirements are above. The model proves properties only of this old
+abstraction, not the current retained runtime or adapter behavior. See the
+[formal-model limits](../formal/runner/README.md).
 
 ### 5.1 Durable state and recovery
 
@@ -392,332 +438,6 @@ Initial states are `queued` (new workflow, validated continuation) and `schedule
 
 Each external effect follows **intent → action → observed receipt**. On every owner start, replay, validate process identities/deadlines and reconcile pending IDs before admission. A lost merge response remains `awaiting_merge` until readback proves completion or absence; a lost approval response uses `effect.uncertain` if reconciliation cannot establish the actor/result. No automatic repeat of an uncertain non-idempotent effect. Exactly-once external execution is not assumed; missing evidence never means success.
 
-### 5.2 Events and notification delivery
+### 5.2 Historical table boundary
 
-State-changing events and their guards are defined by §5.1. Adapters normalize `run.died`, `run.stalled` and `run.timed_out` to `run.failed` with a reason. Allowlisted lifecycle/observational events include every attempt/session/run start and end, brief, decision, finding, waiver, verdict, gate, nudge, hold, merge and direct edit listed in the [ontology](runner-ontology.md#event-types), alongside `effect.planned`, `run.start_requested`, `run.progress`, `runner.started`, `runner.heartbeat`, `runner.finished`, `policy.warning` and notification receipts. Lifecycle observations enrich replay without creating new phases. A direct-edit commit is recorded with its orchestrator session and emits the existing `head.changed` invalidation path before gated re-review. `job.finished` describes a run, while the persisted workflow state describes its outcome.
-
-Events contain evidence references and reason codes, not raw prompts/output or secret configuration. Render status, board and costs as folds over the streams; never parse status text back into state. Mirror human-relevant decisions, waivers, verdicts and merges to `td log` with a pointer back to the ticket stream and sequence/event reference; the stream itself is not stored in td. Notifications and mirrors use durable consumer cursors and delivery IDs: at-least-once delivery, deduplication where supported, bounded retries and visible terminal failure. An offline sink must not lose the ticket's decision state.
-
-### 5.3 Results
-
-Record duration, rounds, gate failures, review findings, outcome and optional token/cost usage per run. Roll cost up to session, attempt and ticket, counting each receipt once; ticket-only job sessions contribute directly to the ticket. Unknown cost is “unavailable,” not zero, and partial meters remain labeled through rollups. Codex subscription runs report available tokens without a dollar figure; only metered gateway-billed runs contribute dollars. Results and the future UI consume journal-derived records. A ticket owns attempts; each attempt represents one worker session's effort, with associated review/orchestrator/job sessions and their runs. A worker note carries assumptions and next steps without becoming a second database.
-
-Where a gateway supports request metadata, label each request with the opaque runner run ID; retain sanitized request IDs and meter receipts for correlation. Aggregate usage/cost by run and ticket across worker, reviewer, nudges and fallback segments, deduplicating receipts. Report input/output tokens and repeated context volume when available, so repeated large contexts are visible. Show configured external budget, attributed spend and remaining budget only when the meter provides them; partial/missing attribution stays explicitly incomplete. These are observational aggregates, not initial runner spend caps (§12.1).
-
-## 6. Scheduler and monitor
-
-The **queue scheduler is persistent**: it watches the durable queue, admits work as slots free and waits when empty. Tickets added later need no restart. Individual worker/reviewer/job processes and one-shot workflow invocations start for assigned work and exit at their outcome; none is a per-run daemon. This supersedes the earlier drain-to-exit scheduler decision without changing per-run lifetime. Service/boot/restart policy is decided in §12; installing the service is separate work.
-
-The queue stores ticket, repository, pipeline, lane and validated overrides. Read dependencies from td; enqueue leaf tickets, not planning parents, and omit epics from the board. Prerequisites are satisfied only by confirmed merges; approval/closure alone is insufficient. Launch the first eligible entry, skipping held tickets; a prerequisite in NEEDS-DECISION, failed or dead keeps its dependent held with a surfaced reason (`td-c414ae`). One execution ownership lock prevents competing schedulers/one-shot executors. Short per-ticket journal-write locks let commands append requests. With a scheduler active, one-shot commands submit and wait for their workflow instead of becoming another executor; a second scheduler returns busy.
-
-Global and per-lane caps apply; `corylus` has cap **1**. Workers, reviewers and internal closers run sequentially in that ticket's slot; a closer never queues behind itself. Terminal outcomes and holds release slots only after child exit/receipts and necessary rollback. Resume reacquires a slot. Use eligible FIFO in lanes and round-robin across lanes. Dependency holds remain visible; other eligible work continues.
-
-Each bounded tick checks identity, launch/wall/idle deadlines, persisted ticket deadlines and controls. Retry only a reconciled safe run under the explicit budgets in §8.2; uncertainty enters `needs_decision`. Pause quiesces active work, saves its origin independently of underlying continuations and prevents admission; stop cancels it. Authorized pause resume restores queued work, queues active continuations, or restores the original hold. It does not resolve a blocker or grant acceptance/merge authority. Service effects must be restored before either control completes. Notifications use durable cursors and bounded delivery retries; failures are visible but do not stop admission.
-
-Use that one watcher for every registered run kind: worker, reviewer, closer, digest and service/PR follow-up job. Liveness follows the persisted handle, progress and expected workflow outcome, not a hardcoded kind or expected merge event. Per-run supervisors enforce deadlines but do not become additional watchers or schedulers.
-
-Explicit scheduler shutdown stops admission, monitors admitted workflows to terminal/hold, records `runner.finished` and exits. Empty or dependency-blocked queues do **not** shut it down. Scheduler crash stops new effects; surviving per-run supervisors keep deadlines and receipts. Every restart recovers before admission (§5.1). Manual completion expects no merge event and is never reported as a dead run.
-
-## 7. Command line
-
-```text
-corylus-run config check | config show
-corylus-run scheduler [--lane L] | scheduler stop
-corylus-run run TICKET [--pipeline P] [--worker PROFILE] [--reviewer PROFILE]
-corylus-run review TICKET [--reviewer PROFILE]
-corylus-run decision TICKET --file FILE
-corylus-run resume TICKET --note-file FILE
-corylus-run job TICKET --profile P --prompt-file FILE [--authorization REF]
-corylus-run stop TICKET | pause TICKET
-corylus-run queue add TICKET --lane L | queue list
-corylus-run status [TICKET]
-corylus-run results [--by profile|pipeline|lane]
-```
-
-`scheduler` recovers and watches until explicit shutdown or fatal owner failure. `run`, `review`, `resume` and `job` recover/drive one workflow, or submit to the active scheduler and wait, then exit at a terminal/hold outcome. `review` requires existing work with valid gates at the pinned head. `resume` queues a validated saved continuation under the tables' guards. Queue/control commands persist requests and return after acknowledgment; `queue add` alone starts no executor. Status/results need no active scheduler.
-
-`resume --note-file` accepts the versioned findings/decision packet described in §3.1; the runner validates authority separately and consumes it at the next dispatch boundary. Operator prompts, notes and decisions use files or adapter-supported stdin; generated commands never require shell command substitution. External-PR review entry refreshes the live head and gates before admission, with normal bounded fix/rereview on rejection (§3.4).
-
-| Exit | Exact state mapping for workflow/scheduler commands |
-|---|---|
-| 0 | `done`, `job_succeeded`, `finished_awaiting_human`, `scheduler_stopped` |
-| 1 | `failed`, `round_exhausted`, `job_failed`, `job_rolled_back`, `job_rollback_failed`, `scheduler_failed` |
-| 2 | `awaiting_acceptance`, `needs_decision`, `dependency_blocked`, `paused`, `awaiting_merge`, `stopped`, `acceptance_declined` |
-
-Read-only/control/config commands return 0 for successful validation/read/acknowledgment, 1 for local/API failure, 2 for busy ownership or invalid/unauthorized requests; they do not manufacture a terminal workflow state. A persistent scheduler has no exit code while watching. Notification failures appear separately in status/evidence and do not change a successful workflow's code.
-
-Decision files record acceptance, manual merge authority, check exemptions or scoped waivers. Missing authority is rejected; a resume note grants none. While paused over `needs_decision`, a blocker resolution may be recorded without unpausing; restore that hold first, then separately resume the resolved blocker. Apply acceptance/waiver decisions and merge authorization only in their original restored holds through the §5.1 guards. Job authorization requires the §12 option-2 policy: a config capability allowance plus a valid run-bound ticket-scoped `[job-authorization]` note, revalidated before every job or closer launch; `--authorization REF` syntax is checked against that policy. Standalone jobs inherit `pipeline.default` run-limit/retry keys; loop roles and merge settings do not apply. No flags bypass independence, gates or reconciliation. Every published PR body/comment identifies its AI author; adapters enforce this and the finish gate checks worker publication evidence.
-
-## 8. Configuration
-
-### 8.1 Why TOML
-
-| Format | Assessment |
-|---|---|
-| TOML | Standard-library `tomllib` on Python 3.11+, typed named tables, comments; recommended and accepted by Julian. |
-| YAML | Familiar but adds a parser dependency and implicit-type pitfalls. |
-| KDL | Readable but adds a dependency and less common tooling. |
-| CUE / Pkl / Nickel | Strong validation but an extra toolchain for a small runner. |
-
-Layer packaged defaults → private local config → validated CLI overrides. `config check` names invalid tables/keys, role mismatches, unknown placeholders, absent harnesses, invalid lane mappings and missing timeouts. `config show` explains value provenance using an allowlist; omits credential values and locations. Freeze an effective config digest per attempt; policy changes require explicit reconciliation at resume.
-
-### 8.2 Default valid TOML
-
-The values below are the **shipped defaults decided in §12**, shown as a valid starting configuration. Profile overrides win over harness limits, which win over `[limits]`; every effective harness limit must be positive, including Codex. Zero disables only the optional ticket deadline. Retry counters are per attempt/stage, not per scheduler restart.
-
-```toml
-[limits]
-max_wall_seconds = 5400
-idle_timeout_seconds = 1200
-launch_timeout_seconds = 30
-cancel_grace_seconds = 15
-rollback_timeout_seconds = 300
-
-[harness.generic]
-command = ["example-agent", "run", "--model", "{model}"]
-resume = ["example-agent", "resume", "{session_id}"]
-prompt = "stdin"
-session = { from = "output_json", field = "session_id" }
-final = { from = "output_json", field = "final_message" }
-billing = "metered"
-
-# Default adapter contract; validate actual CLI/session formats in its build slice.
-[harness.codex]
-command = ["codex", "exec", "--model", "{model}"]
-prompt = "stdin"
-max_wall_seconds = 5400
-idle_timeout_seconds = 1200
-launch_timeout_seconds = 30
-
-[profile.codex]
-harness = "codex"
-model = "example-codex-model"
-roles = ["worker", "reviewer"]
-allow_jobs = { enabled = false, kinds = [], effects = [] }
-
-[profile.builder]
-harness = "generic"
-model = "example-small-model"
-roles = ["worker", "reviewer"]
-max_wall_seconds = 5400
-idle_timeout_seconds = 1200
-launch_timeout_seconds = 30
-allow_jobs = { enabled = false, kinds = [], effects = [] }
-
-[profile.reviewer]
-harness = "generic"
-model = "example-large-model"
-roles = ["worker", "reviewer"]
-max_wall_seconds = 5400
-idle_timeout_seconds = 1200
-launch_timeout_seconds = 30
-allow_jobs = { enabled = false, kinds = [], effects = [] }
-
-[pipeline.default]
-worker = "builder"
-reviewer = "reviewer"
-max_rounds = 2
-round_accounting = "confirmed_worker_start"
-finish_nudges = 1
-launch_retries = 1
-run_failure_retries = 0
-ticket_deadline_seconds = 0
-gates = ["finish", "checks"]
-independence = "session"
-human_acceptance = false
-merge = "automatic"
-
-[pipeline.design]
-worker = "builder"
-reviewer = "reviewer"
-max_rounds = 2
-round_accounting = "confirmed_worker_start"
-finish_nudges = 1
-launch_retries = 1
-run_failure_retries = 0
-ticket_deadline_seconds = 0
-gates = ["finish", "checks"]
-independence = "session"
-human_acceptance = true
-merge = "manual"
-
-[scheduler]
-global_cap = 1
-poll_interval_seconds = 5
-# Deployment metadata defaults; config check must not install/enable services.
-service = "user"
-start_at_boot = false
-restart = "on-failure"
-restart_delay_seconds = 5
-
-[lane.corylus]
-cap = 1
-repositories = ["corylus"]
-
-[gate.judgment]
-enabled = false
-required = false
-stages = ["suspected_stall", "pre_review"]
-```
-
-`roles` restricts the two loop roles. `profile.<name>.allow_jobs` is a
-capability table with exactly three fields: `enabled` (Boolean), `kinds` (array
-of registered job-kind strings: `closer` or an installed runbook name), and
-`effects` (array of registered effect strings from those job/runbook contracts).
-The shipped default is `{ enabled = false, kinds = [], effects = [] }` for every
-profile. Both allowlists use exact names, with no wildcards or implicit
-all-effects grant. `config check` rejects unknown fields, wrong types, unknown
-kinds/effects and nonempty allowlists while disabled. A disabled capability or
-either empty allowlist authorizes nothing. For an enabled profile, the requested
-kind must be listed and every requested effect must be in `effects`; the §12
-note must also authorize that exact launch and its effects. Loop-role membership
-grants no job authority. Real harness argv/session formats need adapter
-conformance tests. Models in examples are placeholders. Installation policy may
-forbid a harness/billing combination; it never silently substitutes a different
-harness.
-
-### 8.3 Public versus private
-
-Public: engine, interfaces, generic templates, synthetic examples and stub tests. Private: repository bindings, workspace locations, real models/harness flags, rules, service runbooks and provider configuration. Reference credentials through the existing private harness/provider mechanism; do not copy them into runner config or serialize environment values. Restrict state/artifact permissions to the runner user. Never publish installation hosts, addresses, paths or credential locations from private inputs.
-
-A private ticket guide may explicitly authorize reading a named credential file for a specified operation. Validate the allowance's author, ticket, exact path and purpose; broader directory access, refresh or discovery is not implied. Pass only that scoped allowance to the selected harness, load the file into an in-memory variable, and keep its value out of prompts, journal, tracker, output and commits. Persist only an opaque allowance reference in public evidence. If unavailable, report `unavailable`; no alternate credential search. The allowance grants neither job effects nor unrelated authentication access.
-
-## 9. Testing and release
-
-Use a scriptable fake CLI and temporary Git/td projects, plus fake forge, clock, judgment and notification services. No production credentials or live service changes in tests. Required scenarios:
-
-- APPROVE, REJECT then APPROVE, NEEDS-DECISION, malformed/duplicate verdicts and invalid findings.
-- Finish nudge success, second failure, failed lint/test discovery and stale-SHA evidence.
-- Missing executable, lost launch receipt, death, hang, idle/wall deadlines and child cleanup.
-- Crash before/after every effect; recovery on scheduler/one-shot start; snapshot replay; duplicate queue/resume; no duplicate launch, approval or merge. Surviving children keep their deadlines and are adopted; orphan supervisors enforce limits without the runner.
-- Creator/worker approval refusal, actual reviewer-context approval, same-model warning, accepted waiver → independent closer, and unauthorized waiver refusal.
-- Lane cap 1, other lanes, slot recovery, held tickets and internal closer without deadlock. Persistent scheduler fills slots without the orchestrator, stays alive when empty/blocked, admits later arrivals without restart and shuts down only on request/fatal failure.
-- Manual lane ends at independent approval with no merge event: persist `finished_awaiting_human`, release the slot and exit the one-shot invocation while the scheduler watches; the monitor never emits false `run.died`. Resume revalidates the accepted SHA. Default automatic pipeline readies a permitted draft and merges only that SHA.
-- Draft handling, delayed PR discovery, forge errors, atomic SHA guard and lost merge response.
-- Notification outage/retry, sanitization before persistence, judgment unavailable/malformed output and unchanged deterministic gates.
-- Authorized service job: backup, reload, service-user verification; job failure, successful/failed rollback, stop/pause/deadline during changed service state; unknown effects never repeat.
-- Every §5.1 expanded transition and exit mapping; launch/nudge/run-retry exhaustion, timed-out/crashed round accounting, human acceptance decline, blocked draft and policy holds.
-- Identity refusal in every `I` phase: approval after human acceptance, prelaunch/active worker and job, verified-child cancellation, unknown-child lease retention and changed-service restoration. Pause/resume from queued work, every `A` phase and every `P` hold; record a paused blocker resolution, restore acceptance/manual-merge/blocked-merge holds without granting authority, and reject stale or unauthorized resumes.
-- Provider budget/rate-limit failure preserves continuation counters/worktree on authorized fallback; same-worker-session resume keeps the attempt, fresh worker fallback starts a new one without granting another round. Unknown effects hold and changed service state restores first. New-input resume retains the eligible session, consumes the versioned packet and invalidates stale scope evidence; mid-round decisions remain pending until a boundary.
-- Actual review-worktree HEAD mismatch despite a successful fetch; external-agent PR fix/rereview; all registered job kinds monitored by one watcher; exact-path credential allowance/refusal with synthetic files; deduplicated run-labeled usage with partial meters; intermediate phase acceptance without whole-ticket completion.
-
-Run targeted Python unit tests and Ruff; end-to-end fakes run in CI. Install from a reviewed known commit/tag, preserving executable permissions. No edits to a running release. Scheduler/recovery probes must show start events, working monitor/notification delivery, empty-queue survival and admission after later enqueue. Kill/restart the scheduler during a stub run and verify supervised deadlines and reconciliation before admission; verify one-shot terminal exits and graceful scheduler shutdown. Installation policy follows the §12 scheduler defaults; service installation is separate work.
-
-## 10. Migration from the shell loop
-
-After Julian accepts the design, create the §11 tickets. Build alongside the existing loop, without changing it through this ticket. First compare captured evidence offline. Then run the new runner on selected low-risk tickets in its own lane: **one executor owns a ticket**, never two live loops acting on it. Verify restart and timeout drills before enabling unattended scheduling. Keep the old loop recoverable until acceptance. Integrate journal-derived records into the existing ticket UI in a separately reviewed change; do not replace the interface or depend on legacy tracker code.
-
-## 11. Ordered build plan
-
-These are proposed slices, not created or started tickets. Names and files form a suggested contract; each slice delivers a testable unit using fakes before its consumers exist. Tests live in `tests/runner/`. “Cheap” means a bounded cheap-builder task; “Codex” marks lifecycle or safety complexity. Each step lists explicit predecessor numbers. Package scaffolding belongs to step 1; later steps add one or two production files plus tests where practical.
-
-| # / ticket | Files and interface delivered | Acceptance tests | Size / dependencies |
-|---|---|---|---|
-| 1. Shared contracts | `runner/__init__.py`, `runner/contracts.py`: requests/results, identities, effect/receipt, gate/event/state types | Reject invalid enum, identity and timeout fields; serialization round-trip | Cheap; none |
-| 2. Configuration | `runner/config.py`, `runner/example.toml`: load/layer/validate/redacted show | Parse example; precedence, unknown keys, roles, caps and missing limits | Cheap; 1 |
-| 3. Durable journal | `runner/store.py`: append/replay/snapshot, intent/receipt IDs and lock | Crash boundaries, fsync failure, partial tail, replay, lock contention | Codex; 1 |
-| 4. Stub harness | `tests/runner/stub_cli.py`: programmable output/session/exit/progress behavior | Subprocess emits success, crash, hang and invalid verdict fixtures | Cheap; 1 |
-| 5. Workspace | `runner/workspace.py`: ensure/review worktrees | Temporary repo; idempotent ensure, main-cwd refusal, dirty preservation, pinned head | Cheap; 1 |
-| 6. Durable launcher | `runner/launcher.py`, `runner/supervisor.py`: claim/spawn/receipt, per-run deadline supervision and process-group control | Missing executable, start deadline, uncertain spawn, identity mismatch, cancellation; runner death retains child limits/receipts | Codex; 1, 3, 4 |
-| 7. CLI harness | `runner/harness.py`: Harness implementation and scrub-before-store output boundary | stdin prompt, argv placeholders, session/final parsing, resume/fresh fallback, limits, secret-output refusal | Codex; 2, 4, 6 |
-| 8. Verdict parser | `runner/verdict.py`: final-line enum and findings | Hyphenated verdict, duplicates, invalid JSON, unsafe paths, failed exit | Cheap; 1 |
-| 9. Tracker read/session | `runner/tracker.py`: get/context/log/submit | Isolated tracker contexts, live identity discovery, malformed capability/schema, effect-tagged logs | Codex; 1 |
-| 10. Tracker approval | Extend `runner/tracker.py`: eligibility and approval/readback | Real temporary td project: worker/creator refusal, reviewer succeeds, refusal stops; lost response reconciliation | Codex; 3, 9 |
-| 11. Forge | `runner/forge.py`: lookup/head/ready/atomic merge | Exact branch, search lag, draft, API errors, moved head, lost response | Cheap; 1 |
-| 12. Finish/check gates | `runner/gates.py`: Gate plus finish/check implementations | Clean/upstream/PR checks, discovery fails closed, commands and receipts tied to SHA | Cheap; 1, 5, 11 |
-| 13. Review policy | `runner/policy.py`: identities/model warning, acceptance/waiver validation | Unknown identity refusal, same-model warning, unauthorized/stale waiver, reviewer versus closer eligibility; automatic versus manual acceptance/merge policy | Cheap; 1, 8, 9 |
-| 14. Single-ticket engine | `runner/engine.py`: pure transitions emitting effect requests | Expanded §5.1 matrix, identity refusal in every I phase, separate pause/blocker continuations, hold restoration without authority bypass, budgets/round accounting; automatic merge and manual finished_awaiting_human without merge event; no success on missing receipt | Codex; 1, 8, 13 |
-| 15. Effect driver/recovery | `runner/driver.py`: execute/reconcile engine effects | Stub full workflow; recovery on start around launch/approval/merge; adopt supervised children without resetting deadlines; no duplicate effects | Codex; 3, 5, 7, 10–14 |
-| 16. Monitor | `runner/monitor.py`: tick/deadline/cancel decisions | Fake clock death, PID reuse, log-only activity, all harness idle/wall/launch and optional ticket deadlines; manual completion never reported dead | Codex; 3, 6, 7 |
-| 17. Queue/lanes | `runner/scheduler.py`: durable enqueue/admission/leases | Corylus cap 1, global/profile caps, FIFO/fairness, dependency holds, slot recovery | Cheap; 2, 3 |
-| 18. Persistent scheduler / one-shot driver | `runner/invocation.py`: ownership, recover-on-start, persistent queue watch, monitor ticks, graceful shutdown and one-shot waiting; injectable job executor | Orchestrator disconnect, crash/restart before admission, empty/blocked queue stays alive, later arrivals admitted without restart, one-shot exit, concurrent commands, hold release, manual completion, closer slot reuse | Codex; 15–17 |
-| 19. Jobs/closer | `runner/jobs.py`: bounded jobs with configurable authorization and independent closer | Same-ticket waiver continuation + eligible closer approval; chosen job-policy authorization; job_succeeded/job_failed states; uncertain effect needs_decision | Codex; 7, 10, 13, 15, 18 |
-| 20. CLI | `runner/cli.py`: §7 commands | Argument validation, sanitized config/status, lease-safe enqueue, scheduler watch/stop, busy owner, exact state/exit mapping, review-only, decisions and jobs | Cheap; 2, 3, 18, 19 |
-| 21. Notifications/results | `runner/notify.py`, `runner/results.py`: cursor delivery and reports | Outage/retry/dedup, visible delivery failure, unavailable cost, deterministic replay reports | Cheap; 3, 18 |
-| 22. Service-job gate | `runner/service_gate.py`: runbook effect receipts and service-user probe | Fake backup/change/reload/verify; failed/canceled/deadline-expired work restores/reloads; named rollback outcomes; failed rollback alerts | Codex; 12, 19 |
-| 23. Optional judgment | `runner/judgment.py`: fixed packets behind Gate, disabled by default | Sanitization, bounded call, bad schema, unavailable, flag pauses, never grants approval | Cheap; 2, 12, 16 |
-| 24. Release/regression suite | `tests/runner/test_e2e.py`, `.github/workflows/runner.yml`; release notes in `docs/runner-release.md` | §9 matrix, targeted/unit CI and Ruff; installed executable/start/recovery/later-enqueue/shutdown probes; approved user-service restart/boot policy | Codex; 1–23 |
-
-Lean model/proofs in `td-e81ba4` follow this design review and feed step 14’s transition tests; they are not implemented here. The §12 defaults are decided and available to the implementation slices. Step 24 has three files because CI and the release runbook accompany the integration suite; it implements no new runtime behavior. UI consumption is a later design/build slice, preserving existing workflows. Approval of this proposal is not approval to start all tickets unattended.
-
-## 12. Decisions
-
-**Decided by Julian, 2026-10-08** (recorded on `td-3830f9` and this ticket):
-every item below ships as the default shown, configurable through its §8.2 key,
-except the invariants listed under **Not configurable**. Job authorization uses
-option 2; see **Job authorization note** below.
-
-| Decision | Config key / shipped default | Reason / alternative | Decided |
-|---|---|---|---|
-| A. Each harness's wall-clock limit, including Codex | `harness.<name>.max_wall_seconds` = **5400**; `[limits].max_wall_seconds` fallback, `profile.<name>.max_wall_seconds` override | 90 minutes bounds a stuck run while allowing substantial work. Tune each installed harness from measured runs, never omit Codex. | Julian, 2026-10-08 |
-| B. Each harness's idle limit, including Codex | `harness.<name>.idle_timeout_seconds` = **1200**; same inheritance | 20 minutes tolerates slow tools but bounds lack of useful progress. Adapter progress must distinguish useful work from log noise. | Julian, 2026-10-08 |
-| C. Round cap | `pipeline.<name>.max_rounds` = **2** | Initial build/review plus one remediation; a larger cap increases unattended repetition. | Julian, 2026-10-08 |
-| D. Does timeout/crash consume a round? | `pipeline.<name>.round_accounting` = **"confirmed_worker_start"** (yes, including timeout/crash) | Work already occurred. Reviewer failure consumes no extra worker round; launch failure before confirmed start and nudges do not. Recovery counts each start once. | Julian, 2026-10-08 |
-| E. Finish/check nudge budget | `pipeline.<name>.finish_nudges` = **1** | One bounded chance to commit/push/fix checks; shared across finish/check gates per attempt. | Julian, 2026-10-08 |
-| F. Launch retry budget | `pipeline.<name>.launch_retries` = **1**; `harness.<name>.launch_timeout_seconds` = **30** | Retry once only after proving no child/effect exists; uncertain launch needs a decision. Launch attempts do not consume rounds until start is confirmed. | Julian, 2026-10-08 |
-| G. Timeout/crash retry budget | `pipeline.<name>.run_failure_retries` = **0** (allowed 0–1) | Stop with evidence by default. Opt-in one safe reconciled retry; worker retry consumes a new round, reviewer/job retry uses this separate budget. | Julian, 2026-10-08 |
-| H. Optional per-ticket deadline | `pipeline.<name>.ticket_deadline_seconds` = **0** (disabled) | Long tasks/holds need no artificial ticket lifetime initially. If enabled, starts at first admission; includes holds/retries, survives restart, and cancels/rolls back at expiry. No spend cap. | Julian, 2026-10-08 |
-| I. Persistent scheduler hosting | `scheduler.service` = **"user"** | A supervised user service under one execution account; shell foreground mode remains available. No per-job daemon. | Julian, 2026-10-08 |
-| J. Start scheduler at boot? | `scheduler.start_at_boot` = **false** | No implicit linger or boot enablement; user-service persistence after logout needs an explicit account/session-lifetime choice. | Julian, 2026-10-08 |
-| K. Restart scheduler after crash? | `scheduler.restart` = **"on-failure"**, `scheduler.restart_delay_seconds` = **5** | Recover-before-admission permits unattended recovery; restart never resets child deadlines. Explicit clean shutdown stays stopped; the service manager must rate-limit crash loops. | Julian, 2026-10-08 |
-| Cancellation / restoration bounds | `limits.cancel_grace_seconds` = **15**, `limits.rollback_timeout_seconds` = **300** | Short grace before kill; a separate five-minute restoration budget remains active after a ticket deadline. Expired/failed rollback alerts. | Julian, 2026-10-08 |
-| Job authorization | `profile.<name>.allow_jobs` = **{ enabled = false, kinds = [], effects = [] }** plus a run-bound ticket-scoped `[job-authorization]` note (spec below) | Option 2: config grants bounded capabilities; the note approves the specific run with accountability and defined expiry. Default disables job capability. No per-run token. | Julian, 2026-10-08 |
-| Merge policy | `pipeline.<name>.merge` = **"automatic"** | Independent approval, exact reviewed SHA and atomic forge guard. Design pipelines may set `"manual"` with human acceptance. | Julian, 2026-10-08 |
-| UI warnings / optional judgment | Same-model warning; `gate.judgment.enabled` = **false** | Preserve chosen UI; show reason/next action with folded evidence. Advisory flags require inspection; unavailable optional judgment retains deterministic checks. | Julian, 2026-10-08 |
-
-**Not configurable.** These are invariants of §3 and §5, not settings; making
-them configurable would remove the guarantees the runner exists to provide:
-
-- **Merge only the exact reviewed SHA** (§3.3, §5.1): the forge call must
-  atomically enforce `expected_sha`; a weaker merge could land unreviewed work.
-- **The reviewer is independent of the builder** (§3.3): it must differ from
-  every worker or committing orchestrator harness session and from all ticket
-  creator/implementer tracker sessions.
-- **Never approve own work** (§3.3): `td approve` runs in the reviewer's or an
-  eligible independent closer's persisted tracker context; `--self-review` and
-  name-only `--reviewed-by` are never substitutes.
-- **A changed head invalidates the verdict** (§3.2, §5.1): approval, acceptance
-  and merge attach to one SHA; a stale head requires gated review, never a merge
-  of the old verdict.
-- **Cancellation targets only verified process identities** (§5.1): otherwise
-  the runner could terminate an unrelated process.
-- **Never repeat an uncertain effect without reconciliation** (§5.1): a
-  duplicate launch, approval or service change could apply an effect twice.
-
-**Job authorization note (option 2).** The capability lives in
-`profile.<name>.allow_jobs` (`enabled`, `kinds`, `effects` — see §8.2; default
-disabled, empty allowlists authorize nothing); a run-bound ticket-scoped note
-authorizes the specific launch:
-
-- **Where it lives:** one `td log td-<ticket> "..."` line on the ticket itself,
-  recorded by Julian or an actor with explicit ticket-recorded delegated
-  authority (including an authorized orchestrator waiver), outside the job's own
-  tracker session. Validate the log's actor/session provenance; the
-  `approved-by` field alone grants no authority. The runner publishes the
-  pending run and launch effect IDs before requesting the note, then rereads it
-  before every job or closer dispatch (§5.1).
-- **Exact format:** the entire log message is `[job-authorization]
-  ticket=td-<id> run=<run-id> launch=<launch-effect-id> kind=<job-kind>
-  profile=<profile-name> scope=<effect1,effect2>
-  approved-by=<authorized-actor-id> date=YYYY-MM-DD`. Fields appear once, in
-  that order; values contain no whitespace. `kind` is `closer` or an installed
-  runbook name; `scope` is a nonempty comma-separated list of exact registered
-  effect names. Ticket, run, launch, kind and profile must match the pending
-  request; requested effects must be included in the note's scope, and every
-  scope effect must be allowed by the profile. Invalid syntax, provenance,
-  binding or capabilities prevents dispatch and enters `needs_decision` through
-  the §5.1 authorization-preflight failure path.
-- **Expiry:** each note authorizes exactly one launch effect ID. Persist its
-  reference with that launch intent; reconcile an uncertain dispatch instead of
-  reusing the note for another launch. It **expires on resume or retry**,
-  including launch retries, run-failure retries and closer retries. Invalidate
-  prior authorization before preparing the resumed/retried launch, assign fresh
-  run/launch IDs and require a new log entry targeting them. Recovery of an
-  unchanged pending intent may retain its still-valid note; adopting an already
-  live child or replaying a receipt performs no launch. Prior notes remain
-  evidence of past authority only. Closer eligibility and service-change
-  authorization remain mandatory (§3.3, §3.4).
-
-### 12.1 Future work
-
-Per-ticket spend caps are **deferred**, not part of initial runner configuration or build acceptance. Built-in run limits are hard wall-clock and idle timeouts, with launch deadlines for start failures. Provider and gateway budgets remain external. Optional usage/cost reporting is observational and labels unavailable metering. A future cap proposal must define enforcement with missing/delayed usage; it does not block this design or its initial build plan.
+The archived transition reference ends here. It does not restore superseded scope.
